@@ -89,13 +89,18 @@ def _build_timeline(start, horizon, recv_dist, avg_durasi, resi_per_day,
     Keluar:
       - Biaya iklan & pembelian produk (HPP semua paket dikirim) di hari kirim.
       - Biaya operasional (opex) per hari.
-      - Ongkir retur (ongkir − cashback) untuk paket gagal, saat paket diterima/retur.
+      - Ongkir retur (per paket gagal, sesuai aturan J&T) saat paket diterima/retur.
+
+    Selain KAS, dihitung juga LABA AKRUAL harian (pengakuan omzet & HPP saat paket
+    diterima/terjual; HPP paket retur TIDAK jadi beban karena barang kembali).
     """
     lag_dist = _receive_lag_dist(recv_dist, avg_durasi)
     cod_cair = defaultdict(float)        # kas COD cair (tgl pencairan)
     transfer_in = defaultdict(float)     # kas transfer (hari kirim)
     cod_shipped = defaultdict(float)     # omzet COD earned (tgl diterima)
     return_out = defaultdict(float)      # biaya ongkir retur (tgl retur ≈ diterima)
+    rev_accr = defaultdict(float)        # omzet diakui (akrual)
+    cogs_accr = defaultdict(float)       # HPP barang terjual (akrual)
 
     ship_days = [start + pd.Timedelta(days=i) for i in range(horizon)]
     for d in ship_days:
@@ -103,11 +108,17 @@ def _build_timeline(start, horizon, recv_dist, avg_durasi, resi_per_day,
         s_tr = resi_per_day * success_rate * (1 - pct_cod)
         s_gagal = resi_per_day * (1 - success_rate)
         transfer_in[d] += s_tr * tr_in
+        # akrual transfer diakui di hari kirim (prabayar & langsung dikirim)
+        rev_accr[d] += s_tr * tr_in
+        cogs_accr[d] += s_tr * hpp_per_resi
         for lag, prob in lag_dist.items():
             recv = d + pd.Timedelta(days=int(lag))
             chunk = s_cod * prob * cod_disb
             cod_shipped[recv] += chunk
             return_out[recv] += s_gagal * prob * return_ongkir
+            # akrual COD diakui saat paket DITERIMA
+            rev_accr[recv] += chunk
+            cogs_accr[recv] += s_cod * prob * hpp_per_resi
             payout = (se.payout_date_mode1(recv, daily_lag)
                       if mode == "mode1" else se.payout_date_mode2(recv))
             if pd.notna(payout):
@@ -129,6 +140,7 @@ def _build_timeline(start, horizon, recv_dist, avg_durasi, resi_per_day,
         cc = cod_cair.get(d, 0.0)
         cs = cod_shipped.get(d, 0.0)
         ro = return_out.get(d, 0.0)
+        laba = rev_accr.get(d, 0.0) - cogs_accr.get(d, 0.0) - ad - opex - ro
         rows.append({
             "tanggal": d, "ad_spend": ad, "hpp_spend": hpp_spend, "opex": opex,
             "return_ongkir": ro,
@@ -136,22 +148,27 @@ def _build_timeline(start, horizon, recv_dist, avg_durasi, resi_per_day,
             "cash_in": ti + cc, "cash_out": ad + hpp_spend + opex + ro,
             "omzet_realized": ti + cc, "omzet_earned": ti + cs,
             "net_cashflow": ti + cc - ad - hpp_spend - opex - ro,
+            "laba_harian": laba,
         })
     tl = pd.DataFrame(rows)
     tl["cum_net"] = tl["net_cashflow"].cumsum()
     tl["cum_ad"] = tl["ad_spend"].cumsum()
     tl["cum_hpp"] = tl["hpp_spend"].cumsum()
     tl["cum_opex"] = tl["opex"].cumsum()
+    tl["cum_cash_in"] = tl["cash_in"].cumsum()
+    tl["cum_cash_out"] = tl["cash_out"].cumsum()
     tl["cum_omzet_realized"] = tl["omzet_realized"].cumsum()
     tl["cum_omzet_earned"] = tl["omzet_earned"].cumsum()
     tl["cum_cod_shipped"] = tl["cod_shipped"].cumsum()
     tl["cum_cod_cair"] = tl["cod_cair"].cumsum()
     tl["cod_outstanding"] = tl["cum_cod_shipped"] - tl["cum_cod_cair"]
     tl["omzet_outstanding"] = tl["cum_omzet_earned"] - tl["cum_omzet_realized"]
-    # SALDO KAS kumulatif (untuk modal awal & titik self-sustaining)
+    # SALDO KAS kumulatif (posisi kas = kas masuk − kas keluar)
     tl["saldo_kas"] = tl["net_cashflow"].cumsum()
     tl["cum_cash"] = tl["saldo_kas"]
     tl["modal_kerja_kumulatif"] = tl["saldo_kas"]
+    # LABA AKRUAL kumulatif
+    tl["laba_kumulatif"] = tl["laba_harian"].cumsum()
     return tl
 
 
@@ -272,8 +289,11 @@ def simulate_multi(baseline: dict, recv_dist: pd.Series,
     success = p["success_rate"]
     pct_cod = p["pct_cod"]
 
-    # ongkir retur (dibayar perusahaan utk paket gagal) = ongkir − cashback
-    return_ongkir = max(ongkir - cashback, 0.0)
+    # Ongkir retur (aturan J&T): gratis bila retur ≤ ambang (20%); jika melebihi,
+    # biaya = (retur% − ambang) × ongkir PENUH untuk tiap paket retur.
+    return_rate = 1 - success
+    retur_excess = max(return_rate - config.RETUR_FREE_THRESHOLD, 0.0)
+    return_ongkir = retur_excess * ongkir            # per paket gagal
 
     rows = []
     def _f(x):
@@ -372,6 +392,20 @@ def simulate_multi(baseline: dict, recv_dist: pd.Series,
     cair_minggu = tl.loc[mask_w, "cod_cair"].sum() + tl.loc[mask_w, "transfer_in"].sum()
     cair_bulan = tl.loc[mask_m, "cod_cair"].sum() + tl.loc[mask_m, "transfer_in"].sum()
 
+    # ---- LIKUIDITAS DALAM HORIZON (dana yang benar-benar cair ≤ T) ----
+    horizon_end = start + pd.Timedelta(days=horizon)
+    in_hz = tl["tanggal"] < horizon_end
+    total_cod_earned = float(tl["cod_shipped"].sum())          # total disbursement COD (semua waktu)
+    cod_cleared_hz = float(tl.loc[in_hz, "cod_cair"].sum())    # COD cair dalam horizon
+    lam_cod = (cod_cleared_hz / total_cod_earned) if total_cod_earned else 1.0
+    total_ret_amt = float(tl["return_ongkir"].sum())
+    ret_hz = float(tl.loc[in_hz, "return_ongkir"].sum())
+    lam_ret = (ret_hz / total_ret_amt) if total_ret_amt else 1.0
+    cash_in_likuid = float(tl.loc[in_hz, "cash_in"].sum())     # kas benar-benar masuk ≤ T
+    cash_out_horizon = float(tl.loc[in_hz, "cash_out"].sum())  # kas keluar ≤ T
+    laba_likuid = cash_in_likuid - cash_out_horizon            # laba bersih LIKUID dalam horizon
+    outstanding_dana = total_cod_earned - cod_cleared_hz       # COD blm cair di akhir horizon
+
     # ---- METRIK MODAL KERJA (audit) ----
     # LABA BERSIH (akrual): HPP barang retur TIDAK rugi (barang kembali & dijual ulang)
     net_profit = (total_revenue - total_cogs - total_return_cost
@@ -382,19 +416,28 @@ def simulate_multi(baseline: dict, recv_dist: pd.Series,
     cash_net_total = float(tl["net_cashflow"].sum())        # arus kas bersih horizon
     roi_modal = (net_profit / modal_awal * 100) if modal_awal > 0 else 0.0
     roi_iklan = (net_profit / budget_total * 100) if budget_total > 0 else 0.0
-    # break-even kas kumulatif (payback) — hari saldo kas kembali >= 0 setelah defisit
+    def _hari(mask):
+        s = tl.loc[mask, "tanggal"]
+        return int((s.iloc[0] - start).days) if not s.empty else None
+
+    # BEP kas (balik modal): saldo kas kembali >= 0 setelah melewati titik terdalam
     trough_idx = int(tl["saldo_kas"].idxmin())
     after = tl.iloc[trough_idx:]
     bk = after.loc[after["saldo_kas"] >= 0, "tanggal"]
     hari_balik_modal = (int((bk.iloc[0] - start).days)
                         if not bk.empty and net_profit > 0 else None)
-    # self-sustaining: hari pertama arus kas harian >= 0 dan tetap positif s/d akhir
+    # hari pertama LABA (akrual) kumulatif >= 0
+    hari_laba_positif = _hari(tl["laba_kumulatif"] >= 0) if net_profit > 0 else None
+    # hari pertama ARUS KAS HARIAN >= 0
+    hari_cashflow_positif = _hari(tl["net_cashflow"] >= 0)
+    # self-sustaining: arus kas harian >= 0 dan tetap positif s/d akhir
     hari_self_sustaining = None
     nc = tl["net_cashflow"].values
     for i in range(len(nc)):
-        if nc[i] >= 0 and all(v >= -1e-6 for v in nc[i:]):
+        if nc[i] >= -1e-6 and all(v >= -1e-6 for v in nc[i:]):
             hari_self_sustaining = int((tl["tanggal"].iloc[i] - start).days)
             break
+    laba_akhir_positif = bool(tl["laba_kumulatif"].iloc[-1] >= 0)
 
     p["budget_harian"] = budget_harian_tot
     p["budget_iklan"] = budget_total
@@ -422,8 +465,15 @@ def simulate_multi(baseline: dict, recv_dist: pd.Series,
         "saldo_kas_akhir": float(tl["saldo_kas"].iloc[-1]),
         "modal_kerja": modal_awal, "modal_total": modal_awal,
         "net_profit": net_profit, "roi_modal": roi_modal, "roi_iklan": roi_iklan,
+        "laba_likuid": laba_likuid, "cash_in_likuid": cash_in_likuid,
+        "cash_out_horizon": cash_out_horizon, "outstanding_dana": outstanding_dana,
+        "lam_cod": lam_cod, "lam_ret": lam_ret,
+        "return_rate": return_rate, "retur_excess": retur_excess,
         "hari_balik_modal": hari_balik_modal,
+        "hari_laba_positif": hari_laba_positif,
+        "hari_cashflow_positif": hari_cashflow_positif,
         "hari_self_sustaining": hari_self_sustaining,
+        "laba_akhir_positif": laba_akhir_positif,
         "horizon_days": horizon, "params": p,
     }
     funnel = {"Lead": n_lead, "Order": n_order, "Resi": n_resi,

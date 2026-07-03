@@ -137,6 +137,10 @@ SETTLE_MODES = {
     "Skema Baru — Cair H+1 Hari Kerja": "mode1",
 }
 
+# Aturan ongkir retur J&T: gratis bila persentase retur <= ambang; jika melebihi,
+# biaya = (retur% − ambang) × total ongkir PENUH (tanpa diskon) dari paket retur.
+RETUR_FREE_THRESHOLD = 0.20  # 20%
+
 # ---------------------------------------------------------------------------
 # TEMA VISUAL (Dark, dominan biru-hijau, ala Power BI / Tableau)
 # ---------------------------------------------------------------------------

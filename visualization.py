@@ -128,6 +128,45 @@ def fig_outstanding_vs_cair(df: pd.DataFrame) -> go.Figure:
     return _base_layout(fig, "Outstanding COD vs Dana Cair", 340)
 
 
+def fig_cash_journey(tl: pd.DataFrame, summary: dict) -> go.Figure:
+    """
+    Perjalanan kas kumulatif: Kas Keluar vs Kas Masuk (cair) vs Kas Masuk+Outstanding.
+    Jarak (Kas Keluar − Kas Masuk) di titik terlebar = MODAL yang harus ditalangi.
+    Titik dua garis berpotongan = BALIK MODAL. Tooltip: kumulatif + nilai harian.
+    """
+    x = tl["tanggal"]
+    ht = ("<b>%{fullData.name}</b><br>Kumulatif: %{y:,.0f}"
+          "<br>Hari ini: %{customdata:,.0f}<extra></extra>")
+    fig = go.Figure()
+    # area gap (modal terpakai) = kas keluar di atas kas masuk
+    fig.add_trace(go.Scatter(x=x, y=tl["cum_cash_out"], name="Kas Keluar Kumulatif",
+                             mode="lines", line=dict(color=T["red"], width=2.5),
+                             customdata=tl["cash_out"], hovertemplate=ht))
+    fig.add_trace(go.Scatter(x=x, y=tl["cum_cash_in"], name="Kas Masuk (sudah cair)",
+                             mode="lines", line=dict(color=T["green"], width=2.5),
+                             fill="tonexty", fillcolor="rgba(255,92,92,0.12)",
+                             customdata=tl["cash_in"], hovertemplate=ht))
+    fig.add_trace(go.Scatter(x=x, y=tl["cum_omzet_earned"],
+                             name="Kas Masuk + Outstanding (blm cair)", mode="lines",
+                             line=dict(color=T["green_soft"], width=1.8, dash="dash"),
+                             customdata=tl["omzet_earned"], hovertemplate=ht))
+    # anotasi modal (gap terlebar)
+    gap = (tl["cum_cash_out"] - tl["cum_cash_in"])
+    gi = int(gap.idxmax())
+    if gap.iloc[gi] > 0:
+        fig.add_annotation(x=tl["tanggal"].iloc[gi], y=tl["cum_cash_out"].iloc[gi],
+                           ax=0, ay=-30, text=f"Modal {_rp(gap.iloc[gi])}",
+                           font=dict(color=T["amber"]), arrowcolor=T["amber"])
+    # anotasi balik modal
+    bm = summary.get("hari_balik_modal")
+    if bm is not None:
+        bt = tl["tanggal"].iloc[0] + pd.Timedelta(days=int(bm))
+        fig.add_vline(x=bt, line=dict(color=T["blue"], dash="dot"),
+                      annotation_text=f"Balik modal H+{bm}", annotation_position="top")
+    fig.update_layout(hovermode="x unified")
+    return _base_layout(fig, "Perjalanan Kas: Keluar vs Masuk (area merah = modal ditalangi)", 420)
+
+
 def fig_saldo_kas(df: pd.DataFrame) -> go.Figure:
     """Saldo kas kumulatif harian — titik terdalam = modal awal dibutuhkan."""
     fig = go.Figure()

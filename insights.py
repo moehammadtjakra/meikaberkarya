@@ -34,11 +34,17 @@ def cashflow_insights(sim: dict) -> list[str]:
         f"Dari lead tersebut diperkirakan menghasilkan ±{_num(s['n_order'])} order "
         f"(closing {p['closing_rate']*100:.0f}%) yang setara {_num(s['n_resi'])} resi."
     )
+    ret_rate = s.get("return_rate", 0) * 100
+    if s.get("retur_excess", 0) <= 0:
+        ret_txt = (f"Retur {ret_rate:.0f}% (≤ 20%) → **ongkir retur GRATIS** sesuai aturan J&T. "
+                   f"Barang kembali & bisa dijual ulang (HPP tidak hilang).")
+    else:
+        ret_txt = (f"Retur {ret_rate:.0f}% (> 20%) → kena ongkir retur atas kelebihan "
+                   f"{s.get('retur_excess',0)*100:.0f}% × ongkir penuh = ±{_rp(s.get('total_return_cost',0))}. "
+                   f"Barang tetap kembali (HPP tidak hilang).")
     out.append(
         f"Sekitar {_num(s['n_sukses'])} paket berhasil dikirim "
-        f"(success rate {s['success_rate']*100:.1f}%). {_num(s['n_gagal'])} paket retur — "
-        f"barang kembali (HPP tidak hilang) tapi menanggung ongkir retur total "
-        f"±{_rp(s.get('total_return_cost', 0))}."
+        f"(success rate {s['success_rate']*100:.1f}%). {_num(s['n_gagal'])} paket retur. " + ret_txt
     )
     out.append(
         f"Komposisi bayar {p['pct_cod']*100:.0f}% COD, {(1-p['pct_cod'])*100:.0f}% transfer. "
