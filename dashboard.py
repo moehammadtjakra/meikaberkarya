@@ -347,8 +347,9 @@ with tab1:
     st.markdown("#### 📈 Perjalanan Kas & Kebutuhan Modal")
     st.plotly_chart(viz.fig_cash_journey(sim["timeline"], s), width='stretch')
     st.caption("Garis merah = total kas keluar (iklan+HPP+opex+retur). Garis hijau = kas "
-               "masuk yang sudah cair. Area merah di antaranya = modal yang sedang ditalangi. "
-               "Saat hijau menyusul merah = balik modal.")
+               "masuk yang sudah cair. Area merah di antaranya = modal yang sedang ditalangi; "
+               "saat hijau menyusul merah = balik modal. **Garis biru = laba bersih kumulatif** "
+               "(akrual); arahkan kursor untuk melihat nilai kumulatif & harian tiap garis.")
     g4 = st.columns(2)
     g4[0].plotly_chart(viz.fig_funnel(sim["funnel"]), width='stretch')
     g4[1].plotly_chart(viz.fig_expense_breakdown(s), width='stretch')

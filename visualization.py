@@ -150,6 +150,13 @@ def fig_cash_journey(tl: pd.DataFrame, summary: dict) -> go.Figure:
                              name="Kas Masuk + Outstanding (blm cair)", mode="lines",
                              line=dict(color=T["green_soft"], width=1.8, dash="dash"),
                              customdata=tl["omzet_earned"], hovertemplate=ht))
+    # laba bersih (akrual) kumulatif + harian
+    if "laba_kumulatif" in tl:
+        fig.add_trace(go.Scatter(x=x, y=tl["laba_kumulatif"],
+                                 name="Laba Bersih Kumulatif", mode="lines",
+                                 line=dict(color=T["blue"], width=2.2),
+                                 customdata=tl["laba_harian"], hovertemplate=ht))
+        fig.add_hline(y=0, line=dict(color=T["muted"], dash="dot", width=1))
     # anotasi modal (gap terlebar)
     gap = (tl["cum_cash_out"] - tl["cum_cash_in"])
     gi = int(gap.idxmax())
