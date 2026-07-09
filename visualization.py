@@ -150,12 +150,13 @@ def fig_cash_journey(tl: pd.DataFrame, summary: dict) -> go.Figure:
                              name="Kas Masuk + Outstanding (blm cair)", mode="lines",
                              line=dict(color=T["green_soft"], width=1.8, dash="dash"),
                              customdata=tl["omzet_earned"], hovertemplate=ht))
-    # laba bersih (akrual) kumulatif + harian
-    if "laba_kumulatif" in tl:
-        fig.add_trace(go.Scatter(x=x, y=tl["laba_kumulatif"],
-                                 name="Laba Bersih Kumulatif", mode="lines",
-                                 line=dict(color=T["blue"], width=2.2),
-                                 customdata=tl["laba_harian"], hovertemplate=ht))
+    # Laba/Saldo kas kumulatif = Kas Masuk − Kas Keluar kumulatif (rekonsiliasi dgn
+    # 2 garis kas di atas). Harian = net cashflow (surplus/defisit hari itu).
+    if "saldo_kas" in tl:
+        fig.add_trace(go.Scatter(x=x, y=tl["saldo_kas"],
+                                 name="Laba Bersih Kumulatif (Kas = Masuk − Keluar)",
+                                 mode="lines", line=dict(color=T["blue"], width=2.4),
+                                 customdata=tl["net_cashflow"], hovertemplate=ht))
         fig.add_hline(y=0, line=dict(color=T["muted"], dash="dot", width=1))
     # anotasi modal (gap terlebar)
     gap = (tl["cum_cash_out"] - tl["cum_cash_in"])
@@ -164,14 +165,37 @@ def fig_cash_journey(tl: pd.DataFrame, summary: dict) -> go.Figure:
         fig.add_annotation(x=tl["tanggal"].iloc[gi], y=tl["cum_cash_out"].iloc[gi],
                            ax=0, ay=-30, text=f"Modal {_rp(gap.iloc[gi])}",
                            font=dict(color=T["amber"]), arrowcolor=T["amber"])
-    # anotasi balik modal
-    bm = summary.get("hari_balik_modal")
+    # anotasi BEP kas (kas kumulatif mulai positif) — BUKAN titik aman tarik modal
+    bm = summary.get("hari_bep_kas")
     if bm is not None:
         bt = tl["tanggal"].iloc[0] + pd.Timedelta(days=int(bm))
         fig.add_vline(x=bt, line=dict(color=T["blue"], dash="dot"),
-                      annotation_text=f"Balik modal H+{bm}", annotation_position="top")
+                      annotation_text=f"Kas mulai positif H+{bm}",
+                      annotation_position="top left",
+                      annotation_font=dict(color=T["blue"], size=10))
+    # anotasi HARI AMAN KEMBALIKAN MODAL (saldo tak pernah minus lagi sesudahnya)
+    km = summary.get("hari_kembali_modal")
+    if km is not None and km != bm:
+        kt = tl["tanggal"].iloc[0] + pd.Timedelta(days=int(km))
+        fig.add_vline(x=kt, line=dict(color=T["green"], dash="dash", width=2),
+                      annotation_text=f"✓ Aman kembalikan modal H+{km}",
+                      annotation_position="top right",
+                      annotation_font=dict(color=T["green"], size=10))
     fig.update_layout(hovermode="x unified")
-    return _base_layout(fig, "Perjalanan Kas: Keluar vs Masuk (area merah = modal ditalangi)", 420)
+    return _base_layout(fig, "Perjalanan Kas: Keluar vs Masuk (area merah = modal ditalangi)", 440)
+
+
+def fig_daily_omzet(tl: pd.DataFrame) -> go.Figure:
+    """Proyeksi omzet/kas masuk harian, dipisah sumber: COD (cair) vs Transfer."""
+    fig = go.Figure()
+    fig.add_bar(x=tl["tanggal"], y=tl["transfer_in"], name="Transfer (prabayar, hari kirim)",
+                marker_color=T["green"],
+                hovertemplate="%{x|%a %d %b}<br>Transfer: %{y:,.0f}<extra></extra>")
+    fig.add_bar(x=tl["tanggal"], y=tl["cod_cair"], name="COD (cair saat settlement)",
+                marker_color=T["blue"],
+                hovertemplate="%{x|%a %d %b}<br>COD cair: %{y:,.0f}<extra></extra>")
+    fig.update_layout(barmode="stack", hovermode="x unified")
+    return _base_layout(fig, "Proyeksi Omzet/Kas Masuk Harian — COD vs Transfer", 340)
 
 
 def fig_saldo_kas(df: pd.DataFrame) -> go.Figure:

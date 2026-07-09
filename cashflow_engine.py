@@ -66,12 +66,32 @@ def build_params(baseline: dict, overrides: dict | None = None) -> dict:
     return p
 
 
-def _receive_lag_dist(recv_dist: pd.Series, avg_durasi: float) -> dict:
+def _receive_lag_dist(recv_dist, avg_durasi: float) -> dict:
     """Kembalikan dict {lag_hari: probabilitas}. Fallback ke titik tunggal."""
     if recv_dist is not None and len(recv_dist) > 0:
         return {int(k): float(v) for k, v in recv_dist.items()}
     lag = max(int(round(avg_durasi or config.DEFAULTS["avg_durasi"])), 1)
     return {lag: 1.0}
+
+
+def _shift_lag_dist(recv_dist, target_mean) -> dict:
+    """
+    Geser distribusi lama-kirim historis agar rata-ratanya = target_mean (hari),
+    sambil mempertahankan bentuk sebaran (variasi hari-dalam-minggu tetap realistis).
+    Dipakai bila pengguna mengubah input rata-rata durasi kirim.
+    """
+    if recv_dist is None or len(recv_dist) == 0:
+        return {max(int(round(target_mean or 1)), 1): 1.0}
+    items = [(int(k), float(v)) for k, v in recv_dist.items()]
+    tot = sum(v for _, v in items) or 1.0
+    cur_mean = sum(k * v for k, v in items) / tot
+    if not target_mean or target_mean <= 0:
+        return {k: v for k, v in items}
+    shift = int(round(target_mean - cur_mean))
+    out = defaultdict(float)
+    for k, v in items:
+        out[max(k + shift, 1)] += v
+    return dict(out)
 
 
 def _build_timeline(start, horizon, recv_dist, avg_durasi, resi_per_day,
@@ -376,7 +396,12 @@ def simulate_multi(baseline: dict, recv_dist: pd.Series,
 
     resi_per_day = n_resi / horizon if horizon else 0
     ad_per_day = budget_harian_tot
-    tl = _build_timeline(start, horizon, recv_dist, baseline.get("avg_durasi"),
+    # Rata-rata durasi kirim bisa dioverride pengguna → geser distribusi terima,
+    # sehingga tanggal paket sampai (dan pencairan Sen/Sel/Kam) ikut menyesuaikan.
+    durasi_ovr = p.get("durasi_override")
+    eff_recv = (_shift_lag_dist(recv_dist, durasi_ovr) if durasi_ovr else recv_dist)
+    avg_dur_eff = durasi_ovr or baseline.get("avg_durasi")
+    tl = _build_timeline(start, horizon, eff_recv, avg_dur_eff,
                          resi_per_day, ad_per_day, success, pct_cod,
                          eff_cod_disb, eff_tr_in, eff_hpp_resi, return_ongkir,
                          opex_per_day, p["mode"], p["daily_lag"])
@@ -420,12 +445,29 @@ def simulate_multi(baseline: dict, recv_dist: pd.Series,
         s = tl.loc[mask, "tanggal"]
         return int((s.iloc[0] - start).days) if not s.empty else None
 
-    # BEP kas (balik modal): saldo kas kembali >= 0 setelah melewati titik terdalam
+    # BEP KAS: hari pertama saldo kas kumulatif kembali >= 0 (kas mulai positif).
+    # CATATAN: ini BUKAN titik aman menarik modal — kas masih bisa turun lagi.
     trough_idx = int(tl["saldo_kas"].idxmin())
     after = tl.iloc[trough_idx:]
     bk = after.loc[after["saldo_kas"] >= 0, "tanggal"]
-    hari_balik_modal = (int((bk.iloc[0] - start).days)
-                        if not bk.empty and net_profit > 0 else None)
+    hari_bep_kas = (int((bk.iloc[0] - start).days)
+                    if not bk.empty and net_profit > 0 else None)
+    hari_balik_modal = hari_bep_kas   # alias kompatibilitas
+    # HARI AMAN KEMBALIKAN MODAL: hari pertama saldo kas TIDAK PERNAH negatif lagi
+    # sesudahnya → menarik modal awal di hari ini tak membuat cashflow minus lagi.
+    neg = tl["saldo_kas"] < -1e-6
+    if not neg.any():
+        hari_kembali_modal = 0
+    elif bool(neg.iloc[-1]):
+        hari_kembali_modal = None      # masih defisit di akhir simulasi
+    else:
+        last_neg_date = tl.loc[neg, "tanggal"].max()
+        hari_kembali_modal = int((last_neg_date - start).days) + 1
+    saldo_di_hari_kembali = (float(tl.loc[tl["tanggal"] ==
+                             start + pd.Timedelta(days=hari_kembali_modal), "saldo_kas"].iloc[0])
+                             if hari_kembali_modal is not None
+                             and (tl["tanggal"] == start + pd.Timedelta(days=hari_kembali_modal)).any()
+                             else None)
     # hari pertama LABA (akrual) kumulatif >= 0
     hari_laba_positif = _hari(tl["laba_kumulatif"] >= 0) if net_profit > 0 else None
     # hari pertama ARUS KAS HARIAN >= 0
@@ -469,7 +511,9 @@ def simulate_multi(baseline: dict, recv_dist: pd.Series,
         "cash_out_horizon": cash_out_horizon, "outstanding_dana": outstanding_dana,
         "lam_cod": lam_cod, "lam_ret": lam_ret,
         "return_rate": return_rate, "retur_excess": retur_excess,
-        "hari_balik_modal": hari_balik_modal,
+        "hari_balik_modal": hari_balik_modal, "hari_bep_kas": hari_bep_kas,
+        "hari_kembali_modal": hari_kembali_modal,
+        "saldo_di_hari_kembali": saldo_di_hari_kembali,
         "hari_laba_positif": hari_laba_positif,
         "hari_cashflow_positif": hari_cashflow_positif,
         "hari_self_sustaining": hari_self_sustaining,

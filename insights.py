@@ -51,17 +51,18 @@ def cashflow_insights(sim: dict) -> list[str]:
         f"Non-COD ({_rp(s['nilai_transfer'])}) masuk **hari itu juga** (likuid langsung); "
         f"COD ({_rp(s['nilai_cod'])}) baru cair setelah paket diterima + settlement."
     )
-    bal = s.get("hari_balik_modal")
-    sus = s.get("hari_self_sustaining")
-    bal_txt = (f"Saldo kas balik ke positif (balik modal) sekitar hari ke-{bal}."
-               if bal is not None else "Saldo kas belum balik positif dalam horizon ini.")
-    sus_txt = (f" Operasional mulai membiayai dirinya sendiri (self-sustaining) hari ke-{sus}."
-               if sus is not None else "")
+    bep = s.get("hari_bep_kas")
+    km = s.get("hari_kembali_modal")
+    bep_txt = (f"Kas kumulatif mulai positif di hari ke-{bep}"
+               if bep is not None else "Kas belum sempat positif dalam horizon ini")
+    km_txt = (f", tapi **modal aman ditarik penuh baru di hari ke-{km}** (setelah itu "
+              f"saldo kas tak pernah minus lagi)." if km is not None
+              else ", dan modal belum aman ditarik penuh dalam periode ini.")
     out.append(
         f"💰 **Modal awal realistis ±{_rp(s.get('modal_awal', 0))}** — kas terdalam yang "
         f"harus ditalangi (iklan + beli produk HPP ±{_rp(s.get('total_beli_produk', 0))} + "
         f"opex) sebelum omzet COD cair. Saldo kas terendah {_rp(s.get('saldo_kas_min', 0))}. "
-        f"{bal_txt}{sus_txt}"
+        f"{bep_txt}{km_txt}"
     )
     out.append(
         f"📈 **Laba bersih ±{_rp(s.get('net_profit', 0))}** (omzet − HPP terjual − iklan − "

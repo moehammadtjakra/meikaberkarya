@@ -25,6 +25,7 @@ import cashflow_engine as ce
 import geography_engine as geo
 import product_engine as prodeng
 import target_engine as te
+import daily_engine as de
 import visualization as viz
 import insights
 import formatting as fmt
@@ -226,14 +227,25 @@ with tab1:
     opex_30 = rupiah_input(g1, "Biaya Operasional / 30 hari (Rp)", 0, "in_opex",
                            help="Biaya operasional teknis: packing, gaji, petty cash, dll. "
                                 "Satu input untuk 30 hari; dibagi rata per hari.")
+    n_cs = int(g1.number_input("Jumlah Customer Service (orang)", 1, 200,
+                               int(config.DEFAULTS.get("n_cs", 3)), step=1,
+                               help="Untuk membagi beban leads per CS."))
     ongkir = rupiah_input(g2, "Ongkir / Resi (Rp)", baseline["avg_total_biaya"], "in_ongkir")
     cashback_pct = g2.number_input("Cashback Ongkir (%)", 0.0, 100.0,
                                    value=round(baseline["cashback_pct"] * 100, 1), step=0.5,
                                    help="Cashback ongkir (Biaya Diskon) sbg omzet.")
+    durasi_kirim = g2.number_input(
+        "Rata² Durasi Kirim (hari)", 1.0, 60.0,
+        value=round(float(baseline.get("avg_durasi") or 7), 1), step=0.5,
+        help="Rata-rata lama paket dari pickup s/d sampai di alamat tujuan. Default dari "
+             "histori. Menentukan tanggal paket diterima → memicu jadwal pencairan COD "
+             "(Sen/Sel/Kam atau H+1). Makin lama durasi, makin lambat COD cair.")
     pct_cod = g3.slider("Order COD (%)", 0, 100, int(round(baseline["pct_cod"] * 100)))
     cod_fee_pct = g3.number_input("COD Fee (%)", 0.0, 10.0,
                                   value=round(baseline["cod_fee_rate"] * 100, 2), step=0.05)
-    horizon = g4.selectbox("Proyeksi (hari)", config.HORIZON_OPTIONS, index=2)
+    horizon = int(g4.number_input("Proyeksi (hari)", min_value=1, max_value=3650,
+                                  value=int(config.DEFAULTS["horizon_days"]), step=1,
+                                  help="Bebas isi berapa pun (> 0 hari)."))
     mode_label = g4.radio("Mode Pencairan", list(config.SETTLE_MODES.keys()))
     mode = config.SETTLE_MODES[mode_label]
     lag = config.SETTLE_DAILY_LAG_DEFAULT
@@ -270,7 +282,7 @@ with tab1:
     overrides = dict(closing_rate=closing, success_rate=success, ongkir_per_resi=ongkir,
                      cashback_pct=cashback_pct / 100, cod_fee_rate=cod_fee_pct / 100,
                      pct_cod=pct_cod / 100, opex_30=opex_30, horizon_days=horizon,
-                     mode=mode, daily_lag=lag)
+                     durasi_override=durasi_kirim, mode=mode, daily_lag=lag)
     sim = ce.simulate_multi(baseline, recv_dist, edited, overrides)
     s = sim["summary"]
 
@@ -298,6 +310,24 @@ with tab1:
              "(kas masuk kotor, sebelum dikurangi HPP/iklan/opex). "
              "COD = Σ (Harga+Cashback−FeeCOD) untuk paket COD sampai; "
              "Transfer = Σ (Harga+Ongkir) untuk paket transfer. Bukan laba.")
+
+    leads_per_hari = s["n_lead"] / horizon if horizon else 0
+    leads_per_cs = leads_per_hari / n_cs if n_cs else 0
+    rcs = st.columns(4)
+    kpi(rcs[0], "Total Leads / Hari", num(leads_per_hari),
+        f"≈ {num(s['n_lead'])} lead / {horizon} hari",
+        help="Rata-rata leads masuk per hari = total lead ÷ horizon.")
+    kpi(rcs[1], f"Leads / Hari per CS ({n_cs} orang)", num(leads_per_cs),
+        "beban follow-up tiap CS/hari", cls="amber",
+        help="Total leads harian dibagi jumlah Customer Service. Acuan beban kerja & "
+             "kebutuhan penambahan CS.")
+    kpi(rcs[2], "Resi / Hari", num((s["n_resi"] / horizon) if horizon else 0),
+        f"dikirim (closing {fmt.persen(closing*100,0)})",
+        help="Jumlah resi/paket yang dikirim per hari = order per hari (1 order = 1 resi).")
+    kpi(rcs[3], "Resi Completed / Hari", num((s["n_sukses"] / horizon) if horizon else 0),
+        f"sukses sampai ({fmt.persen(s['success_rate']*100,0)})", cls="green",
+        help="Paket yang sukses terkirim & diterima konsumen tanpa masalah per hari "
+             "= resi/hari × success rate. Sisanya retur/gagal.")
 
     st.markdown("##### 💵 Kebutuhan Modal & Break-even")
     r3 = st.columns(4)
@@ -335,21 +365,82 @@ with tab1:
         cls="green" if lp is not None else "amber",
         help="Hari pertama laba (akrual) kumulatif ≥ 0 sejak mulai. Jika '> horizon', "
              "laba baru positif setelah periode simulasi selesai.")
-    bm = s.get("hari_balik_modal")
-    cf = s.get("hari_cashflow_positif")
-    kpi(r4[3], "Balik Modal (Kas)", f"H+{bm}" if bm is not None else "> horizon",
-        f"kas harian mulai + H+{cf}" if cf is not None else "kas belum surplus",
-        cls="green" if bm is not None else "amber",
-        help="BEP kas: hari saldo kas kembali ke ≥ 0 (modal awal sudah kembali). "
-             "Sub: hari pertama arus kas harian surplus.")
+    bep = s.get("hari_bep_kas")
+    km = s.get("hari_kembali_modal")
+    kpi(r4[3], "Kas Mulai Positif (BEP Kas)",
+        f"H+{bep}" if bep is not None else "> horizon",
+        (f"⚠️ blm aman tarik modal — aman di H+{km}" if km is not None
+         else "kas masih bisa turun lagi"),
+        cls="amber",
+        help="Hari saldo kas kumulatif pertama kali ≥ 0. PENTING: ini BUKAN titik aman "
+             "menarik modal — kas masih bisa turun negatif lagi setelahnya. Lihat kartu "
+             "'Aman Kembalikan Modal'.")
+
+    st.markdown("##### 🤝 Pengembalian Modal Investor")
+    rk = st.columns(4)
+    kpi(rk[0], "Modal Awal Dibutuhkan", rp(s["modal_awal"]),
+        "dana ditalangi investor/owner", cls="amber")
+    if km is not None:
+        kpi(rk[1], "✓ Aman Kembalikan Modal", f"Hari ke-{km}",
+            "saldo kas tak minus lagi sesudahnya", cls="green",
+            help="Rekomendasi hari untuk menarik/mengembalikan modal awal penuh TANPA "
+                 "membuat cashflow harian minus lagi. = hari pertama saldo kas tidak "
+                 "pernah negatif lagi hingga akhir periode. Lebih akurat dari BEP kas.")
+    else:
+        kpi(rk[1], "✓ Aman Kembalikan Modal", "> horizon",
+            "belum aman dalam periode ini", cls="amber",
+            help="Dalam horizon ini saldo kas masih bisa negatif — modal belum bisa "
+                 "ditarik penuh tanpa risiko defisit. Perpanjang horizon atau kurangi belanja.")
+    kpi(rk[2], "Kas Mulai Positif (BEP)", f"H+{bep}" if bep is not None else "> horizon",
+        "≠ titik aman tarik modal")
+    kpi(rk[3], "Sumber Pengembalian", "Margin operasi",
+        "laba bersih penjualan yang cair", cls="green",
+        help="Modal kembali dari akumulasi surplus kas (margin jual − HPP − iklan − "
+             "fee − retur − opex), bukan dari utang/investasi baru.")
 
     # ---------- CHARTS ----------
     st.markdown("#### 📈 Perjalanan Kas & Kebutuhan Modal")
     st.plotly_chart(viz.fig_cash_journey(sim["timeline"], s), width='stretch')
-    st.caption("Garis merah = total kas keluar (iklan+HPP+opex+retur). Garis hijau = kas "
-               "masuk yang sudah cair. Area merah di antaranya = modal yang sedang ditalangi; "
-               "saat hijau menyusul merah = balik modal. **Garis biru = laba bersih kumulatif** "
-               "(akrual); arahkan kursor untuk melihat nilai kumulatif & harian tiap garis.")
+    st.caption("Garis merah = total kas keluar (iklan+HPP+opex+retur) kumulatif. Garis hijau "
+               "= kas masuk yang sudah cair kumulatif. **Garis biru tebal = Laba Bersih "
+               "Kumulatif (kas) = kas masuk − kas keluar** — jadi persis selisih garis hijau "
+               "dan merah (surplus/defisit harian yang dijumlahkan). Saat biru di bawah 0, "
+               "itulah modal yang sedang ditalangi (area merah). Garis vertikal biru = **kas "
+               "mulai positif** (BEP kas, tapi bisa turun lagi); garis vertikal hijau = **hari "
+               "aman mengembalikan seluruh modal** — saat saldo kas sudah cukup menutup modal "
+               "awal DAN cashflow sesudahnya dijamin tak minus lagi. Kursor menampilkan nilai "
+               "kumulatif & harian tiap garis.")
+    st.markdown("#### 💵 Proyeksi Omzet Harian — COD vs Transfer")
+    st.plotly_chart(viz.fig_daily_omzet(sim["timeline"]), width='stretch')
+    st.caption(f"Transfer ({fmt.persen((1-pct_cod/100)*100,0)} order) masuk di hari kirim. "
+               f"COD ({pct_cod}% order) baru masuk saat cair — setelah paket sampai "
+               f"(±{durasi_kirim:g} hari) mengikuti jadwal pencairan J&T. Ubah durasi kirim "
+               f"atau %COD untuk melihat dampaknya pada timing kas.")
+
+    # ---------- TABEL CASHFLOW HARIAN ----------
+    st.markdown("#### 🧾 Tabel Cashflow Harian")
+    _HARI = {0: "Senin", 1: "Selasa", 2: "Rabu", 3: "Kamis", 4: "Jumat", 5: "Sabtu", 6: "Minggu"}
+    _BLN = {1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "Mei", 6: "Jun",
+            7: "Jul", 8: "Agu", 9: "Sep", 10: "Okt", 11: "Nov", 12: "Des"}
+
+    def _tgl(t):
+        return f"{_HARI[t.weekday()]}, {t.day} {_BLN[t.month]} {t.year}"
+
+    tlx = sim["timeline"].copy()
+    tlx["saldo_akhir"] = tlx["saldo_kas"]
+    tlx["saldo_awal"] = tlx["saldo_kas"] - tlx["net_cashflow"]
+    tabel_cf = pd.DataFrame({
+        "Tanggal": [_tgl(t) for t in tlx["tanggal"]],
+        "Kas Masuk": tlx["cash_in"].map(rp),
+        "Kas Keluar": tlx["cash_out"].map(rp),
+        "Laba/Rugi": tlx["net_cashflow"].map(rp),
+        "Saldo Awal": tlx["saldo_awal"].map(rp),
+        "Saldo Akhir": tlx["saldo_akhir"].map(rp),
+    })
+    st.dataframe(tabel_cf, width='stretch', height=380, hide_index=True)
+    st.caption("Saldo Awal tiap hari = Saldo Akhir hari sebelumnya (mulai Rp0). Saldo negatif "
+               "= kas yang sedang ditalangi modal. Timeline mencakup hari kirim + ekor "
+               "pencairan COD setelah horizon.")
     g4 = st.columns(2)
     g4[0].plotly_chart(viz.fig_funnel(sim["funnel"]), width='stretch')
     g4[1].plotly_chart(viz.fig_expense_breakdown(s), width='stretch')
@@ -384,6 +475,99 @@ with tab1:
             "ROI Iklan": (pp_df["roi"] * 100).round(0).map(lambda v: fmt.persen(v, 0)),
         })
         st.dataframe(show, width='stretch', height=300, hide_index=True)
+
+    # ========== SIMULASI CASHFLOW HARIAN (EDITABLE PER HARI) ==========
+    st.markdown("---")
+    st.markdown("#### 🧮 Simulasi Cashflow Harian (ubah budget/CPL/opex per hari)")
+    st.caption("Ubah **Budget Iklan, CPL, atau Opex di hari tertentu** — kolom lain "
+               "dihitung ulang otomatis, termasuk pencairan COD dari order hari itu yang "
+               "baru cair beberapa hari kemudian. Budget dibagi proporsional ke produk terpilih.")
+
+    # --- parameter blended (tertimbang jumlah order) dari tabel produk ---
+    _e = edited.copy()
+    _bud = pd.to_numeric(_e["Budget/Hari"], errors="coerce").fillna(0)
+    _cpl = pd.to_numeric(_e["CPL"], errors="coerce").fillna(0)
+    _prc = pd.to_numeric(_e["Nilai Produk"], errors="coerce").fillna(0)
+    _hpp = pd.to_numeric(_e["HPP"], errors="coerce").fillna(0)
+    _leads_p = (_bud / _cpl.replace(0, np.nan)).fillna(0)
+    _TL = float(_leads_p.sum())
+    tot_budget_day = float(_bud.sum())
+    eff_cpl = tot_budget_day / _TL if _TL else config.DEFAULTS["cpl"]
+    _wl = (_leads_p / _TL) if _TL else pd.Series([1 / max(len(_prc), 1)] * len(_prc))
+    nilai_bl = float((_prc * _wl).sum()) or baseline["avg_nilai_produk"]
+    hpp_bl = float((_hpp * _wl).sum())
+    g_daily = dict(closing=closing, success=success, pct_cod=pct_cod / 100, ongkir=ongkir,
+                   cashback=cashback_pct / 100 * ongkir, cod_fee_rate=cod_fee_pct / 100,
+                   hpp=hpp_bl, nilai_produk=nilai_bl, mode=mode, daily_lag=lag,
+                   durasi_override=durasi_kirim, start_date=pd.Timestamp.today().normalize())
+
+    start_cf = g_daily["start_date"]
+    _tgl_list = [start_cf + pd.Timedelta(days=i) for i in range(horizon)]
+
+    def _tgl_id(t):
+        _H = {0: "Sen", 1: "Sel", 2: "Rab", 3: "Kam", 4: "Jum", 5: "Sab", 6: "Min"}
+        _B = {1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "Mei", 6: "Jun",
+              7: "Jul", 8: "Agu", 9: "Sep", 10: "Okt", 11: "Nov", 12: "Des"}
+        return f"{_H[t.weekday()]}, {t.day} {_B[t.month]} {t.year}"
+
+    def _seed_cf():
+        return pd.DataFrame({
+            "Tanggal": [_tgl_id(t) for t in _tgl_list],
+            "Budget Iklan": [int(round(tot_budget_day))] * horizon,
+            "CPL": [int(round(eff_cpl))] * horizon,
+            "Opex": [int(round(opex_30 / 30))] * horizon,
+        })
+
+    _key = f"cf_edit_{horizon}"
+    if _key not in st.session_state:
+        st.session_state[_key] = _seed_cf()
+    cbtn = st.columns([5, 1])
+    cbtn[0].caption(f"Range {horizon} hari sejak {_tgl_id(start_cf)}. Default budget "
+                    f"{rp(tot_budget_day)}/hari, CPL {rp(eff_cpl)}, opex {rp(opex_30/30)}/hari.")
+    if cbtn[1].button("🔄 Reset harian", width='stretch'):
+        st.session_state[_key] = _seed_cf()
+        st.session_state.pop(f"cfed_{horizon}", None)
+        st.rerun()
+
+    _mny = lambda lb: st.column_config.NumberColumn(lb, min_value=0, format="localized")
+    ed_days = st.data_editor(
+        st.session_state[_key], width='stretch', height=260, key=f"cfed_{horizon}",
+        column_config={
+            "Tanggal": st.column_config.TextColumn("Tanggal", disabled=True),
+            "Budget Iklan": _mny("Budget Iklan (Rp)"),
+            "CPL": _mny("CPL (Rp)"),
+            "Opex": _mny("Opex (Rp)"),
+        })
+
+    day_rows = [{"budget": r["Budget Iklan"], "cpl": r["CPL"], "opex": r["Opex"]}
+                for _, r in ed_days.iterrows()]
+    res_cf = de.simulate_editable(day_rows, g_daily, recv_dist)
+    tcf = res_cf["table"]
+
+    hasil = pd.DataFrame({
+        "Tanggal": [_tgl_id(t) for t in tcf["tanggal"]],
+        "Budget Iklan": tcf["budget"].map(rp),
+        "CPL": tcf["cpl"].map(rp),
+        "Opex": tcf["opex"].map(rp),
+        "Leads": tcf["leads"].map(num),
+        "Resi Terkirim": tcf["resi"].map(num),
+        "HPP": tcf["hpp"].map(rp),
+        "Kas Masuk": tcf["cash_in"].map(rp),
+        "Kas Keluar": tcf["cash_out"].map(rp),
+        "Laba/Rugi": tcf["net"].map(rp),
+        "Saldo Awal": tcf["saldo_awal"].map(rp),
+        "Saldo Akhir": tcf["saldo_akhir"].map(rp),
+    })
+    st.dataframe(hasil, width='stretch', height=380, hide_index=True)
+    mcf = st.columns(4)
+    kpi(mcf[0], "Total Kas Masuk (range)", rp(tcf["cash_in"].sum()), cls="green")
+    kpi(mcf[1], "Total Kas Keluar (range)", rp(tcf["cash_out"].sum()), cls="amber")
+    kpi(mcf[2], "Saldo Akhir Range", rp(res_cf["saldo_akhir"]),
+        cls="green" if res_cf["saldo_akhir"] >= 0 else "amber")
+    kpi(mcf[3], "⏳ Outstanding Omzet (cair setelah range)", rp(res_cf["outstanding"]),
+        "COD order dalam range yg blm cair", cls="amber",
+        help="Dana COD dari order selama range ini yang pencairannya jatuh SETELAH hari "
+             "terakhir range — tetap akan cair meski belanja iklan hanya di range ini.")
 
     st.markdown("#### 💡 Insight Otomatis")
     for line in insights.cashflow_insights(sim):
@@ -554,7 +738,8 @@ with tab4:
 
     tc = st.columns([1, 1, 2])
     target_profit = rupiah_input(tc[0], "Target Laba Bersih (Rp)", 600_000_000, "in_target")
-    target_days = tc[1].selectbox("Target Waktu (hari)", config.HORIZON_OPTIONS, index=2)
+    target_days = int(tc[1].number_input("Target Waktu (hari)", min_value=1, max_value=3650,
+                                         value=30, step=1, help="Bebas isi > 0 hari."))
 
     # --- rakit parameter dasar dari tabel produk + global (Modul 1) ---
     et = edited.copy()
@@ -581,7 +766,7 @@ with tab4:
     ov0 = dict(closing_rate=base["closing"], success_rate=base["success"], ongkir_per_resi=ongkir,
                cashback_pct=base["cashback_pct"], cod_fee_rate=base["cod_fee_rate"],
                pct_cod=base["pct_cod"], opex_30=base["opex_30"], horizon_days=target_days,
-               mode=mode, daily_lag=lag)
+               durasi_override=durasi_kirim, mode=mode, daily_lag=lag)
     s0 = ce.simulate_multi(baseline, recv_dist, syn0, ov0)["summary"]
     lam_cod, lam_ret = s0["lam_cod"], s0["lam_ret"]
     res = te.solve(target_profit, target_days, base, lam_cod, lam_ret)
@@ -651,7 +836,7 @@ with tab4:
     ov_t = dict(closing_rate=sc["closing"], success_rate=sc["success"], ongkir_per_resi=ongkir,
                 cashback_pct=sc["cashback_pct"], cod_fee_rate=sc["cod_fee_rate"],
                 pct_cod=sc["pct_cod"], opex_30=opex_30, horizon_days=target_days,
-                mode=mode, daily_lag=lag)
+                durasi_override=durasi_kirim, mode=mode, daily_lag=lag)
     st_ = ce.simulate_multi(baseline, recv_dist, syn, ov_t)
     simt, st_ = st_, st_["summary"]
     d1 = st.columns(4)

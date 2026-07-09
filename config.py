@@ -92,6 +92,7 @@ TIPE_NONCOD = "NONCOD"
 DEFAULTS = {
     "budget_iklan": 100_000_000,  # total (otomatis = budget_harian x horizon)
     "budget_harian": 3_000_000,   # budget iklan per hari (Rp)
+    "n_cs": 3,                    # jumlah customer service default
     "hpp_ratio": 0.40,            # default HPP = 40% dari Nilai Produk
     "cpl": 8_000,                 # Cost per lead (Rp)
     "closing_rate": 0.30,         # % lead -> order
