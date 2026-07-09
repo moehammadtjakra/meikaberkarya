@@ -70,9 +70,12 @@ def product_summary(df: pd.DataFrame, hpp: float = 0.0,
                 net_real=("net_real_row", "sum"),
                 margin_jual=("margin_jual_row", "sum"),
                 sampai=("is_sampai", "sum"),
+                retur=(("is_retur", "sum") if "is_retur" in d else ("is_sampai", "size")),
                 cod=("is_cod", "sum"),
                 avg_durasi=("durasi_kirim", "mean"))
            .reset_index())
+    if "is_retur" not in d:
+        g["retur"] = 0
 
     g["aov"] = (g["revenue"] / g["resi"]).round(0)
     g["hpp_per_resi"] = (g["hpp_total"] / g["resi"]).round(0)
@@ -80,6 +83,7 @@ def product_summary(df: pd.DataFrame, hpp: float = 0.0,
     g["margin_per_resi"] = (g["net_real"] / g["resi"]).round(0)
     g["margin_pct"] = (g["margin_jual"] / g["revenue"] * 100).round(1)
     g["sla"] = (g["sampai"] / g["resi"] * 100).round(1)
+    g["retur_pct"] = (g["retur"] / g["resi"] * 100).round(1)
     g["cod_pct"] = (g["cod"] / g["resi"] * 100).round(1)
     g["avg_durasi"] = g["avg_durasi"].round(1)
 

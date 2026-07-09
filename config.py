@@ -142,6 +142,12 @@ SETTLE_MODES = {
 # biaya = (retur% − ambang) × total ongkir PENUH (tanpa diskon) dari paket retur.
 RETUR_FREE_THRESHOLD = 0.20  # 20%
 
+# Rekomendasi standar performa wilayah (default; bisa disesuaikan di dashboard).
+# Retur maks 20% selaras dengan ambang GRATIS ongkir retur J&T — di atasnya mulai
+# kena biaya. Sampai min 60% = batas sehat agar mayoritas order menghasilkan kas.
+TARGET_SAMPAI_MIN = 60   # % paket sampai minimal (rekomendasi)
+TARGET_RETUR_MAX = 20    # % retur maksimal (rekomendasi)
+
 # ---------------------------------------------------------------------------
 # TEMA VISUAL (Dark, dominan biru-hijau, ala Power BI / Tableau)
 # ---------------------------------------------------------------------------
@@ -162,13 +168,13 @@ THEME = {
     "purple": "#9B7BFF",
 }
 
-# Skala warna kontinu untuk peta / heatmap (biru -> hijau).
+# Skala warna kontinu (rendah -> tinggi): MERAH -> KUNING -> HIJAU.
+# Untuk metrik "makin tinggi makin baik" (resi, net): hijau = tinggi.
+# Untuk metrik "makin tinggi makin buruk" (retur, durasi): pakai reversescale.
 COLORSCALE = [
-    [0.0, "#0E2A47"],
-    [0.35, "#1B6CB8"],
-    [0.6, "#16A0A0"],
-    [0.85, "#19C37D"],
-    [1.0, "#7CF5B0"],
+    [0.0, "#FF5C5C"],   # merah  (rendah / buruk)
+    [0.5, "#F5C542"],   # kuning (menengah)
+    [1.0, "#19C37D"],   # hijau  (tinggi / baik)
 ]
 
 CATEGORICAL_COLORS = ["#2E8BFF", "#19C37D", "#16C2C2", "#9B7BFF",

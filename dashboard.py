@@ -200,9 +200,9 @@ st.caption(f"Periode data {dmin:%d %b %Y} – {dmax:%d %b %Y} • "
            f"{baseline['n_resi']:,} resi setelah filter".replace(",", "."))
 
 tab1, tab4, tab2, tab3 = st.tabs(["💰 Modul 1 — Simulator Cashflow & Pencairan",
-                                  "🎯 Modul — Target Profit Simulator",
-                                  "🗺️ Modul 2 — Analisis Wilayah",
-                                  "📦 Modul 3 — Analisis Produk"])
+                                  "🎯 Modul 2 — Target Profit Simulator",
+                                  "🗺️ Modul 3 — Analisis Wilayah",
+                                  "📦 Modul 4 — Analisis Produk"])
 
 # ---- seeder tabel produk (master, persisten lintas filter) ----
 def seed_master():
@@ -573,126 +573,219 @@ with tab1:
     for line in insights.cashflow_insights(sim):
         st.markdown(f'<div class="insight">• {line}</div>', unsafe_allow_html=True)
 
-# =================================================================== MODUL 2
+# =================================================================== MODUL 3
 with tab2:
     prov = geo.province_summary(dff)
-    cities = geo.city_summary(dff)
+    tot_resi = int(prov["resi"].sum())
+    tot_sampai = int(prov["sampai"].sum())
+    tot_retur = int(prov["retur"].sum())
+    sla_all = tot_sampai / tot_resi * 100 if tot_resi else 0
+    retur_all = tot_retur / tot_resi * 100 if tot_resi else 0
+    sig = prov[prov["resi"] >= 15]
+    worst = sig.sort_values("retur_pct", ascending=False).iloc[0] if not sig.empty else None
+    best = sig.sort_values("retur_pct").iloc[0] if not sig.empty else None
 
-    st.markdown("#### 🗺️ Sebaran Pengiriman Indonesia")
+    avg_ongkir_all = float(dff["ongkir"].mean()) if "ongkir" in dff else 0.0
+    avg_cashback_all = float(dff["biaya_diskon"].mean()) if "biaya_diskon" in dff else 0.0
+
+    st.markdown("#### 🗺️ Analisis Wilayah — Ringkasan Keputusan")
+    k = st.columns(4)
+    kpi(k[0], "Total Resi", num(tot_resi), f"{prov['provinsi'].nunique()} provinsi")
+    kpi(k[1], "% Sampai Rata²", fmt.persen(sla_all, 0), "paket sukses sampai konsumen",
+        cls="green" if sla_all >= config.TARGET_SAMPAI_MIN else "amber",
+        help="Persentase paket yang statusnya 'Sampai Tujuan' dari total dikirim. "
+             "(dulu diberi label SLA)")
+    kpi(k[2], "% Retur Rata²", fmt.persen(retur_all, 0), f"{num(tot_retur)} paket retur",
+        cls="green" if retur_all <= config.TARGET_RETUR_MAX else "amber",
+        help="Paket 'Belum Diterima' tapi sudah ada Waktu Terima = diupayakan antar lalu "
+             "dikembalikan. Sisanya (100−sampai−retur) masih transit.")
+    if worst is not None:
+        kpi(k[3], "⚠️ Perlu Perhatian", worst["provinsi"][:16],
+            f"retur {worst['retur_pct']:.0f}% ({num(int(worst['retur']))} paket)", cls="amber")
+
+    # ---- STANDAR REKOMENDASI + ONGKIR/CASHBACK ----
+    st.markdown("##### 🎯 Standar Rekomendasi & Ongkir/Cashback")
+    sc = st.columns(4)
+    target_sampai = sc[0].number_input("Standar min % Sampai", 0, 100,
+                                       int(config.TARGET_SAMPAI_MIN), step=5,
+                                       help="Rekomendasi: minimal 60% paket sampai agar sehat.")
+    target_retur = sc[1].number_input("Standar maks % Retur", 0, 100,
+                                      int(config.TARGET_RETUR_MAX), step=5,
+                                      help="Rekomendasi: maksimal 20% — selaras ambang GRATIS "
+                                           "ongkir retur J&T. Di atasnya mulai kena biaya retur.")
+    kpi(sc[2], "Rata² Ongkir Penuh", rp(avg_ongkir_all),
+        "biaya kirim penuh per resi", cls="amber",
+        help="Rata-rata ongkir penuh (Biaya Kirim) — ini uang titipan konsumen ke J&T, "
+             "bukan pendapatan. Jadi acuan biaya & ongkir retur.")
+    kpi(sc[3], "Rata² Cashback Diterima", rp(avg_cashback_all),
+        "diskon ongkir dari J&T (omzet)", cls="green",
+        help="Rata-rata cashback/diskon ongkir (Biaya Diskon) yang perusahaan terima "
+             "dari J&T per resi — ini menjadi bagian omzet.")
+    n_kritis = int(((sig["retur_pct"] > target_retur) | (sig["sla"] < target_sampai)).sum())
+    st.caption(f"📌 **{n_kritis} dari {len(sig)} provinsi** (min 15 resi) melanggar standar "
+               f"(retur > {target_retur}% atau sampai < {target_sampai}%). "
+               f"Fokuskan perbaikan/pengurangan iklan di wilayah ini.")
+
+    # ---- PETA ----
+    st.markdown("##### Peta Sebaran")
     mc = st.columns([3, 1])
-    metric_label = mc[1].selectbox("Metrik Peta",
-                                   ["Jumlah Resi", "Proyeksi Net", "Outstanding", "Rata² Durasi"])
-    metric_map = {"Jumlah Resi": "resi", "Proyeksi Net": "proyeksi_net",
-                  "Outstanding": "outstanding", "Rata² Durasi": "avg_durasi"}
-    metric = metric_map[metric_label]
+    metric_label = mc[1].selectbox("Warnai peta berdasarkan",
+                                   ["Jumlah Resi", "Proyeksi Net", "% Retur",
+                                    "Rata² Durasi", "Outstanding"])
+    mm = {"Jumlah Resi": ("resi", False), "Proyeksi Net": ("proyeksi_net", False),
+          "% Retur": ("retur_pct", True), "Rata² Durasi": ("avg_durasi", True),
+          "Outstanding": ("outstanding", True)}
+    metric, rev = mm[metric_label]
     gj = geo.load_geojson()
-    if gj is not None:
-        fig_map = viz.fig_choropleth(prov, gj, metric, metric_label)
-    else:
-        fig_map = viz.fig_bubble_map(prov, metric, metric_label)
+    fig_map = (viz.fig_choropleth(prov, gj, metric, metric_label, reverse=rev)
+               if gj is not None else viz.fig_bubble_map(prov, metric, metric_label, reverse=rev))
     mc[0].plotly_chart(fig_map, width='stretch')
+    mc[1].caption("🟢 Hijau = baik, 🔴 Merah = buruk. Untuk Retur/Durasi/Outstanding, "
+                  "makin hijau makin rendah (makin baik).")
 
-    # insights wilayah
     for line in insights.geography_insights(prov):
         st.markdown(f'<div class="insight">• {line}</div>', unsafe_allow_html=True)
 
-    st.markdown("#### 🔍 Drill-down Provinsi")
+    # ---- WILAYAH BERMASALAH (retur) ----
+    st.markdown("##### 🔴 Wilayah Bermasalah — Retur Tertinggi → Terendah")
+    cc = st.columns([3, 2])
+    cc[0].plotly_chart(viz.fig_retur_ranking(prov, 12), width='stretch')
+    tblw = sig.sort_values("retur_pct", ascending=False)
+
+    def _status(row):
+        bad_r = row["retur_pct"] > target_retur
+        bad_s = row["sla"] < target_sampai
+        if bad_r and bad_s:
+            return "🔴 Kritis"
+        if bad_r:
+            return "🟠 Retur tinggi"
+        if bad_s:
+            return "🟡 Sampai rendah"
+        return "🟢 OK"
+
+    show_w = pd.DataFrame({
+        "Provinsi": tblw["provinsi"], "Resi": tblw["resi"].map(num),
+        "Retur": tblw["retur"].map(num),
+        "% Retur": tblw["retur_pct"].map(lambda v: fmt.persen(v, 0)),
+        "% Sampai": tblw["sla"].map(lambda v: fmt.persen(v, 0)),
+        "Status": tblw.apply(_status, axis=1),
+    })
+    cc[1].dataframe(show_w, width='stretch', height=380, hide_index=True)
+
+    # ---- WILAYAH TERBAIK ----
+    st.markdown("##### 🏆 Wilayah Terbaik (Volume & Margin)")
+    t = st.columns(2)
+    t[0].plotly_chart(viz.fig_top_bar(prov, "provinsi", 10, "resi", "Top 10 Provinsi (Resi)"),
+                      width='stretch')
+    t[1].plotly_chart(viz.fig_region_perf(prov, "provinsi"), width='stretch')
+
+    # ---- DRILL DOWN ----
+    st.markdown("##### 🔍 Detail Provinsi")
     psel = st.selectbox("Pilih Provinsi", prov["provinsi"].tolist())
     det = geo.province_detail(dff, psel)
     if det:
         d = st.columns(4)
-        kpi(d[0], "Jumlah Resi", num(det["resi"]))
-        kpi(d[1], "Total Proyeksi Net", rp(det["proyeksi_net"]), cls="green")
-        kpi(d[2], "Rata² Durasi", f"{det['avg_durasi']} hari")
-        kpi(d[3], "SLA Pengiriman", f"{det['sla']}%", cls="green")
+        kpi(d[0], "Resi", num(det["resi"]), f"kota terbanyak: {det['top_kota']}")
+        kpi(d[1], "% Sampai", fmt.persen(det["sla"], 0),
+            cls="green" if det["sla"] >= config.TARGET_SAMPAI_MIN else "amber")
+        kpi(d[2], "% Retur", fmt.persen(det["retur_pct"], 0), f"{num(det['retur'])} paket",
+            cls="green" if det["retur_pct"] <= config.TARGET_RETUR_MAX else "amber")
+        kpi(d[3], "Proyeksi Net", rp(det["proyeksi_net"]), cls="green")
         d2 = st.columns(4)
-        kpi(d2[0], "Paket Sampai", num(det["sampai"]), cls="green")
-        kpi(d2[1], "Belum Sampai", num(det["belum_sampai"]), cls="amber")
-        kpi(d2[2], "Outstanding COD", rp(det["outstanding"]), cls="amber")
-        kpi(d2[3], "Kota Terbanyak", det["top_kota"])
-
-        st.markdown(f"##### Kota Tujuan di {psel}")
+        kpi(d2[0], "Rata² Ongkir Penuh", rp(det.get("avg_ongkir", 0)), "per resi")
+        kpi(d2[1], "Rata² Cashback", rp(det.get("avg_cashback", 0)), "diterima (omzet)",
+            cls="green")
+        kpi(d2[2], "Paket Sampai", num(det["sampai"]), cls="green")
+        kpi(d2[3], "Rata² Durasi", f"{det['avg_durasi']} hari" if det.get("avg_durasi") else "-")
         cdet = geo.city_summary(dff, psel)
-        st.plotly_chart(viz.fig_top_bar(cdet, "kota", 10, "resi",
-                                        f"Top 10 Kota — {psel}"), width='stretch')
+        st.plotly_chart(viz.fig_top_bar(cdet, "kota", 10, "resi", f"Top Kota — {psel}"),
+                        width='stretch')
 
-    st.markdown("#### 📊 Performa Wilayah")
-    t = st.columns(2)
-    t[0].plotly_chart(viz.fig_top_bar(prov, "provinsi", 10, "resi", "Top 10 Provinsi (Resi)"),
-                      width='stretch')
-    t[1].plotly_chart(viz.fig_top_bar(cities, "kota", 10, "resi", "Top 10 Kota (Resi)"),
-                      width='stretch')
-    t2 = st.columns(2)
-    t2[0].plotly_chart(viz.fig_treemap(prov), width='stretch')
-    t2[1].plotly_chart(viz.fig_region_perf(prov, "provinsi"), width='stretch')
-    t3 = st.columns(2)
-    t3[0].plotly_chart(viz.fig_duration_hist(dff), width='stretch')
-    t3[1].plotly_chart(viz.fig_duration_box(dff, "provinsi"), width='stretch')
-
-    with st.expander("📋 Tabel Performa Provinsi"):
-        st.dataframe(prov.round(1), width='stretch', height=320)
+    with st.expander("📋 Tabel lengkap provinsi & distribusi durasi kirim"):
+        st.dataframe(prov.round(1), width='stretch', height=300)
+        e = st.columns(2)
+        e[0].plotly_chart(viz.fig_duration_hist(dff), width='stretch')
+        e[1].plotly_chart(viz.fig_duration_box(dff, "provinsi"), width='stretch')
 
 # =================================================================== MODUL 3
 with tab3:
-    st.markdown("#### 📦 Analisis Produk — Data-Driven Decision")
-    # HPP per produk diambil dari Tabel Produk (Modul 1) -> satu sumber data
+    st.markdown("#### 📦 Analisis Produk — Keputusan Cepat")
     master = st.session_state.get("produk_master")
     hpp_map = (dict(zip(master["Produk"].astype(str),
                         pd.to_numeric(master["HPP"], errors="coerce").fillna(0)))
                if master is not None and not master.empty else {})
     default_hpp = round(baseline["avg_nilai_produk"] * config.DEFAULTS["hpp_ratio"])
-
-    cc = st.columns([2, 1])
-    cc[0].caption("💡 **HPP per produk** memakai nilai dari **Tabel Produk di Modul 1** "
-                  "(satu sumber data). Produk tanpa HPP memakai default "
-                  f"{rp(default_hpp)}. **Margin jual = Nilai Produk − HPP** (belum termasuk biaya iklan).")
-    pareto_pct = cc[1].slider("Ambang Pareto (%)", 50, 95, 80, step=5)
+    topc = st.columns([3, 1])
+    topc[0].caption("**Winning** = kontribusi margin terbesar. **Aman** = paling banyak "
+                    "sampai & paling sedikit retur. HPP dari Tabel Produk (Modul 1).")
+    pareto_pct = topc[1].slider("Ambang Pareto (%)", 50, 95, 80, step=5)
 
     prod = prodeng.product_summary(dff, hpp=default_hpp, hpp_map=hpp_map, use_clean=True)
     if prod.empty:
         st.warning("Kolom produk (Nama Barang) tidak tersedia pada data.")
     else:
-        prod_q = prodeng.quadrant(prod)
         pareto = prodeng.pareto_threshold(prod, pareto_pct)
-
-        # ---- KPI produk ----
-        st.markdown("##### 📌 Ringkasan")
-        rp1 = st.columns(4)
-        kpi(rp1[0], "Jumlah Produk", num(len(prod)))
-        kpi(rp1[1], "Total Margin Jual", rp(prod["margin_jual"].sum()),
-            "Nilai Produk − HPP (sblm iklan)", cls="green")
-        kpi(rp1[2], "Total Net Real", rp(prod["net_real"].sum()),
-            "stlh cashback & COD fee", cls="green")
-        kpi(rp1[3], "Total Modal HPP", rp(prod["hpp_total"].sum()),
-            "stok historis", cls="amber")
-        rp2 = st.columns(4)
+        sigp = prod[prod["resi"] >= 10]
         win = prod.iloc[0]
-        kpi(rp2[0], "Winning Product", win["produk"][:22],
-            f"{fmt.persen(win['kontribusi_pct'])} net", cls="green")
-        kpi(rp2[1], f"Produk Inti (Pareto {pareto_pct}%)", num(pareto["n_produk_inti"]),
-            f"{pareto['share_produk']:.0f}% katalog", cls="amber")
-        best_m = prod[prod["resi"] >= 10].sort_values("margin_jual_per_resi", ascending=False)
-        if not best_m.empty:
-            kpi(rp2[2], "Margin Jual/Resi Tertinggi", rp(best_m.iloc[0]["margin_jual_per_resi"]),
-                best_m.iloc[0]["produk"][:18], cls="green")
-        kpi(rp2[3], "Rata² Margin %", fmt.persen(prod["margin_pct"].mean()))
+        safe = (sigp.sort_values(["retur_pct", "sla"], ascending=[True, False]).iloc[0]
+                if not sigp.empty else win)
 
-        # ---- insights ----
+        # ---- KPI keputusan ----
+        r = st.columns(4)
+        kpi(r[0], "🏆 Winning (Margin Terbaik)", win["produk"][:20],
+            f"{fmt.persen(win['kontribusi_pct'])} net • {rp(win['margin_jual_per_resi'])}/resi",
+            cls="green", help="Produk dengan kontribusi net real (margin) terbesar.")
+        kpi(r[1], "✅ Produk Teraman", safe["produk"][:20],
+            f"retur {safe['retur_pct']:.0f}% • sampai {safe['sla']:.0f}%", cls="green",
+            help="Paling banyak sampai & paling sedikit retur (min 10 resi).")
+        kpi(r[2], "Total Net Real", rp(prod["net_real"].sum()), f"{num(len(prod))} produk",
+            cls="green")
+        kpi(r[3], f"Produk Inti (Pareto {pareto_pct}%)", num(pareto["n_produk_inti"]),
+            f"{pareto['share_produk']:.0f}% produk = {pareto_pct}% net", cls="amber")
+
+        # ---- BRIEF PARETO (kacamata bisnis) ----
+        st.info(f"📊 **Arti Pareto:** hanya **{pareto['n_produk_inti']} dari "
+                f"{pareto['n_produk_total']} produk** ({pareto['share_produk']:.0f}% katalog) "
+                f"sudah menyumbang **{pareto_pct}% dari total keuntungan**. Artinya bisnis Anda "
+                f"**bertumpu pada segelintir produk inti** — di sinilah stok, modal, dan budget "
+                f"iklan sebaiknya diprioritaskan. Sisanya (produk 'ekor panjang') kontribusinya "
+                f"kecil: evaluasi mana yang dipertahankan, mana yang dihentikan agar modal & "
+                f"perhatian tidak terpecah. Geser ambang Pareto untuk melihat konsentrasi ini "
+                f"lebih ketat/longgar.")
+
         st.markdown("##### 💡 Insight Otomatis")
         for line in insights.product_insights(prod, pareto):
             st.markdown(f'<div class="insight">• {line}</div>', unsafe_allow_html=True)
 
-        # ---- charts ----
-        gp = st.columns(2)
-        gp[0].plotly_chart(viz.fig_top_products(prod, 12, "net_real",
-                           "🏆 Top 12 Produk (Kontribusi Net Real)"), width='stretch')
-        gp[1].plotly_chart(viz.fig_top_products(prod, 12, "revenue",
-                           "💰 Top 12 Produk (Revenue)"), width='stretch')
-        st.plotly_chart(viz.fig_pareto(prod, 15), width='stretch')
-        gp2 = st.columns([3, 2])
-        gp2[0].plotly_chart(viz.fig_quadrant(prod_q), width='stretch')
-        gp2[1].plotly_chart(viz.fig_product_treemap(prod, 25), width='stretch')
-        st.plotly_chart(viz.fig_product_sla(prod, 12), width='stretch')
+        # ---- Winning vs Aman (dua tabel berdampingan) ----
+        st.markdown("##### 🏆 Winning Products  vs  ✅ Produk Teraman")
+        cols = st.columns(2)
+        wl = prod.head(10)
+        cols[0].caption("Kontribusi margin terbaik (genjot iklannya)")
+        cols[0].dataframe(pd.DataFrame({
+            "Produk": wl["produk"], "Resi": wl["resi"].map(num),
+            "Net Real": wl["net_real"].map(rp),
+            "Margin/Resi": wl["margin_jual_per_resi"].map(rp),
+            "Kontribusi": wl["kontribusi_pct"].map(lambda v: fmt.persen(v)),
+            "% Sampai": wl["sla"].map(lambda v: fmt.persen(v, 0)),
+        }), width='stretch', height=380, hide_index=True)
+        sl = (sigp.sort_values(["retur_pct", "sla"], ascending=[True, False]).head(10)
+              if not sigp.empty else prod.head(10))
+        cols[1].caption("Paling aman (sampai tinggi, retur rendah)")
+        cols[1].dataframe(pd.DataFrame({
+            "Produk": sl["produk"], "Resi": sl["resi"].map(num),
+            "% Sampai": sl["sla"].map(lambda v: fmt.persen(v, 0)),
+            "% Retur": sl["retur_pct"].map(lambda v: fmt.persen(v, 0)),
+            "Margin/Resi": sl["margin_jual_per_resi"].map(rp),
+        }), width='stretch', height=380, hide_index=True)
+
+        st.plotly_chart(viz.fig_top_products(prod, 12, "net_real",
+                        "🏆 Top 12 Produk — Kontribusi Net Real (Margin)"), width='stretch')
+
+        with st.expander("📊 Kuadran (volume vs margin) & Pareto"):
+            gp = st.columns([3, 2])
+            gp[0].plotly_chart(viz.fig_quadrant(prodeng.quadrant(prod)), width='stretch')
+            gp[1].plotly_chart(viz.fig_pareto(prod, 15), width='stretch')
 
         # ---- drill-down produk ----
         st.markdown("##### 🔍 Detail Produk")
@@ -700,32 +793,24 @@ with tab3:
         row = prod[prod["produk"] == psel2].iloc[0]
         dd = st.columns(4)
         kpi(dd[0], "Resi", num(row["resi"]), f"AOV {rp(row['aov'])}")
-        kpi(dd[1], "HPP / Resi", rp(row["hpp_per_resi"]), cls="amber")
-        kpi(dd[2], "Margin Jual / Resi", rp(row["margin_jual_per_resi"]),
+        kpi(dd[1], "Margin Jual / Resi", rp(row["margin_jual_per_resi"]),
             f"{fmt.persen(row['margin_pct'])} (sblm iklan)",
             cls="green" if row["margin_jual_per_resi"] >= 0 else "amber")
-        kpi(dd[3], "Net Real / Resi", rp(row["margin_per_resi"]),
-            "stlh cashback & COD fee",
-            cls="green" if row["margin_per_resi"] >= 0 else "amber")
-        dd2 = st.columns(4)
-        kpi(dd2[0], "Total Margin Jual", rp(row["margin_jual"]), cls="green")
-        kpi(dd2[1], "Kontribusi Net", fmt.persen(row["kontribusi_pct"]))
-        kpi(dd2[2], "SLA", fmt.persen(row["sla"], 0),
-            cls="green" if row["sla"] >= 60 else "amber")
-        kpi(dd2[3], "% COD", fmt.persen(row["cod_pct"], 0))
+        kpi(dd[2], "% Sampai / % Retur", f"{row['sla']:.0f}% / {row['retur_pct']:.0f}%",
+            cls="green" if row["sla"] >= config.TARGET_SAMPAI_MIN else "amber")
+        kpi(dd[3], "Kontribusi Net", fmt.persen(row["kontribusi_pct"]),
+            f"net {rp(row['net_real'])}", cls="green")
 
-        with st.expander("📋 Tabel Lengkap Produk (margin jual, net real, kontribusi)"):
+        with st.expander("📋 Tabel lengkap semua produk"):
             tbl = pd.DataFrame({
-                "Produk": prod["produk"],
-                "Resi": prod["resi"].map(num),
+                "Produk": prod["produk"], "Resi": prod["resi"].map(num),
                 "Nilai Produk": prod["aov"].map(rp),
-                "HPP/Resi": prod["hpp_per_resi"].map(rp),
                 "Margin Jual/Resi": prod["margin_jual_per_resi"].map(rp),
                 "Margin %": prod["margin_pct"].map(lambda v: fmt.persen(v)),
-                "Net Real/Resi": prod["margin_per_resi"].map(rp),
                 "Net Total": prod["net_real"].map(rp),
                 "Kontribusi": prod["kontribusi_pct"].map(lambda v: fmt.persen(v)),
-                "SLA": prod["sla"].map(lambda v: fmt.persen(v, 0)),
+                "% Sampai": prod["sla"].map(lambda v: fmt.persen(v, 0)),
+                "% Retur": prod["retur_pct"].map(lambda v: fmt.persen(v, 0)),
             })
             st.dataframe(tbl, width='stretch', height=360, hide_index=True)
 

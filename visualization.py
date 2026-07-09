@@ -279,18 +279,21 @@ def fig_payout_calendar(df: pd.DataFrame) -> go.Figure:
     return _base_layout(fig, "Kalender Pencairan COD", 320)
 
 
-# ------------------------------------------------------------------ MODUL 2
+# ------------------------------------------------------------------ MODUL WILAYAH
 def fig_bubble_map(prov: pd.DataFrame, metric: str = "resi",
-                   label: str = "Jumlah Resi") -> go.Figure:
+                   label: str = "Jumlah Resi", reverse: bool = False) -> go.Figure:
+    """reverse=True untuk metrik 'makin tinggi makin buruk' (retur, durasi) →
+    merah=buruk(tinggi), hijau=baik(rendah)."""
     d = prov.dropna(subset=["lat", "lon"]).copy()
-    # provinsi tanpa nilai (mis. durasi NaN krn paket masih transit) -> 0
     d[metric] = pd.to_numeric(d[metric], errors="coerce").fillna(0)
+    size_src = d[metric].abs()
     fig = go.Figure(go.Scattergeo(
         lon=d["lon"], lat=d["lat"], text=d["provinsi"],
         marker=dict(
-            size=d[metric], sizemode="area",
-            sizeref=2.0 * d[metric].max() / (45 ** 2) if d[metric].max() else 1,
+            size=size_src, sizemode="area",
+            sizeref=2.0 * size_src.max() / (45 ** 2) if size_src.max() else 1,
             sizemin=4, color=d[metric], colorscale=config.COLORSCALE,
+            reversescale=reverse,
             showscale=True, line=dict(width=0.5, color="rgba(255,255,255,0.4)"),
             colorbar=dict(title=label)),
         hovertemplate="<b>%{text}</b><br>" + label + ": %{marker.color:,.0f}<extra></extra>",
@@ -303,14 +306,30 @@ def fig_bubble_map(prov: pd.DataFrame, metric: str = "resi",
     return _base_layout(fig, f"Peta Sebaran ({label})", 460)
 
 
+def fig_retur_ranking(prov: pd.DataFrame, n: int = 12, min_resi: int = 15) -> go.Figure:
+    """Ranking wilayah paling bermasalah (retur %) — terburuk di atas."""
+    d = prov[prov["resi"] >= min_resi].nlargest(n, "retur_pct").iloc[::-1]
+    fig = go.Figure(go.Bar(
+        x=d["retur_pct"], y=d["provinsi"], orientation="h",
+        marker=dict(color=d["retur_pct"], colorscale=config.COLORSCALE, reversescale=True),
+        text=[f"{p:.0f}% ({r} resi)" for p, r in zip(d["retur_pct"], d["retur"])],
+        textposition="auto",
+        customdata=d[["retur", "resi"]].values,
+        hovertemplate="<b>%{y}</b><br>Retur: %{x:.1f}%<br>"
+                      "%{customdata[0]} dari %{customdata[1]} resi<extra></extra>"))
+    fig.update_xaxes(ticksuffix="%")
+    return _base_layout(fig, f"🔴 Wilayah Paling Bermasalah (Retur %, min {min_resi} resi)", 380)
+
+
 def fig_choropleth(prov: pd.DataFrame, geojson: dict, metric: str = "resi",
-                   label: str = "Jumlah Resi") -> go.Figure:
+                   label: str = "Jumlah Resi", reverse: bool = False) -> go.Figure:
     prov = prov.copy()
     prov[metric] = pd.to_numeric(prov[metric], errors="coerce").fillna(0)
+    _cs = [c for _, c in config.COLORSCALE]           # ["#FF5C5C","#F5C542","#19C37D"]
     fig = px.choropleth(
         prov, geojson=geojson, locations="provinsi",
         featureidkey="properties.Propinsi", color=metric,
-        color_continuous_scale=config.COLORSCALE)
+        color_continuous_scale=(_cs[::-1] if reverse else _cs))
     fig.update_geos(scope="asia", center=dict(lat=-2.5, lon=118),
                     lataxis_range=[-11, 7], lonaxis_range=[94, 142],
                     bgcolor="rgba(0,0,0,0)", visible=False)
@@ -360,11 +379,11 @@ def fig_region_perf(df: pd.DataFrame, col: str = "provinsi", n: int = 12) -> go.
     d = df.nlargest(n, "resi")
     fig = go.Figure()
     fig.add_bar(x=d[col], y=d["resi"], name="Resi", marker_color=T["blue"])
-    fig.add_trace(go.Scatter(x=d[col], y=d["sla"], name="SLA %", yaxis="y2",
+    fig.add_trace(go.Scatter(x=d[col], y=d["sla"], name="% Sampai", yaxis="y2",
                              mode="lines+markers", line=dict(color=T["green"])))
     fig.update_layout(yaxis2=dict(overlaying="y", side="right", range=[0, 100],
                                   color=T["muted"], showgrid=False))
-    return _base_layout(fig, f"Performa {col.title()} (Resi vs SLA)", 360)
+    return _base_layout(fig, f"Performa {col.title()} (Resi vs % Sampai)", 360)
 
 
 # ------------------------------------------------------------------ MODUL 3
@@ -431,8 +450,8 @@ def fig_product_sla(prod: pd.DataFrame, n: int = 12) -> go.Figure:
     d = prod.nlargest(n, "resi")
     fig = go.Figure()
     fig.add_bar(x=d["produk"], y=d["resi"], name="Resi", marker_color=T["blue"])
-    fig.add_trace(go.Scatter(x=d["produk"], y=d["sla"], name="SLA %", yaxis="y2",
+    fig.add_trace(go.Scatter(x=d["produk"], y=d["sla"], name="% Sampai", yaxis="y2",
                              mode="lines+markers", line=dict(color=T["green"])))
     fig.update_layout(yaxis2=dict(overlaying="y", side="right", range=[0, 100],
                                   color=T["muted"], showgrid=False))
-    return _base_layout(fig, "Volume vs SLA per Produk (Top Volume)", 380)
+    return _base_layout(fig, "Volume vs % Sampai per Produk (Top Volume)", 380)

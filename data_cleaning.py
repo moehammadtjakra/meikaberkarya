@@ -70,6 +70,14 @@ def clean_all_resi(df_raw: pd.DataFrame) -> pd.DataFrame:
     df["is_sampai"] = df.get("status_ttd").eq(config.STATUS_SAMPAI) if "status_ttd" in df else False
     df["is_cod"] = df.get("tipe_cod").eq(config.TIPE_COD) if "tipe_cod" in df else True
     df["is_recon"] = df.get("rekon").eq(config.REKON_DONE) if "rekon" in df else False
+    # RETUR / bermasalah: status "Belum Diterima" TAPI sudah ada tanggal Waktu Terima
+    # (ada upaya antar tapi tidak diterima → dikembalikan). Berbeda dari "masih transit".
+    if {"status_ttd", "waktu_terima"}.issubset(df.columns):
+        df["is_retur"] = df["status_ttd"].eq(config.STATUS_BELUM) & df["waktu_terima"].notna()
+        df["in_transit"] = df["status_ttd"].eq(config.STATUS_BELUM) & df["waktu_terima"].isna()
+    else:
+        df["is_retur"] = False
+        df["in_transit"] = False
 
     # durasi: bila kosong tapi ada kedua tanggal, hitung selisih
     if "durasi_kirim" in df and {"tgl_kirim", "waktu_terima"}.issubset(df.columns):
