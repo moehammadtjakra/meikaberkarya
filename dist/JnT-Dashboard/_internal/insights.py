@@ -34,19 +34,40 @@ def cashflow_insights(sim: dict) -> list[str]:
         f"Dari lead tersebut diperkirakan menghasilkan ±{_num(s['n_order'])} order "
         f"(closing {p['closing_rate']*100:.0f}%) yang setara {_num(s['n_resi'])} resi."
     )
-    out.append(
-        f"Modal yang perlu disiapkan: HPP produk ±{_rp(s.get('modal_hpp', 0))} "
-        f"(beli stok) + modal kerja ±{_rp(s.get('modal_kerja', 0))} (talangan) "
-        f"= total ±{_rp(s.get('modal_total', 0))}."
-    )
+    ret_rate = s.get("return_rate", 0) * 100
+    if s.get("retur_excess", 0) <= 0:
+        ret_txt = (f"Retur {ret_rate:.0f}% (≤ 20%) → **ongkir retur GRATIS** sesuai aturan J&T. "
+                   f"Barang kembali & bisa dijual ulang (HPP tidak hilang).")
+    else:
+        ret_txt = (f"Retur {ret_rate:.0f}% (> 20%) → kena ongkir retur atas kelebihan "
+                   f"{s.get('retur_excess',0)*100:.0f}% × ongkir penuh = ±{_rp(s.get('total_return_cost',0))}. "
+                   f"Barang tetap kembali (HPP tidak hilang).")
     out.append(
         f"Sekitar {_num(s['n_sukses'])} paket berhasil dikirim "
-        f"(success rate {s['success_rate']*100:.1f}%), {_num(s['n_gagal'])} berpotensi gagal/retur."
+        f"(success rate {s['success_rate']*100:.1f}%). {_num(s['n_gagal'])} paket retur. " + ret_txt
     )
     out.append(
-        f"Komposisi pembayaran {p['pct_cod']*100:.0f}% COD dan "
-        f"{(1-p['pct_cod'])*100:.0f}% transfer. Dana transfer ({_rp(s['nilai_transfer'])}) "
-        f"masuk lebih cepat karena bersifat prabayar."
+        f"Komposisi bayar {p['pct_cod']*100:.0f}% COD, {(1-p['pct_cod'])*100:.0f}% transfer. "
+        f"Non-COD ({_rp(s['nilai_transfer'])}) masuk **hari itu juga** (likuid langsung); "
+        f"COD ({_rp(s['nilai_cod'])}) baru cair setelah paket diterima + settlement."
+    )
+    bep = s.get("hari_bep_kas")
+    km = s.get("hari_kembali_modal")
+    bep_txt = (f"Kas kumulatif mulai positif di hari ke-{bep}"
+               if bep is not None else "Kas belum sempat positif dalam horizon ini")
+    km_txt = (f", tapi **modal aman ditarik penuh baru di hari ke-{km}** (setelah itu "
+              f"saldo kas tak pernah minus lagi)." if km is not None
+              else ", dan modal belum aman ditarik penuh dalam periode ini.")
+    out.append(
+        f"💰 **Modal awal realistis ±{_rp(s.get('modal_awal', 0))}** — kas terdalam yang "
+        f"harus ditalangi (iklan + beli produk HPP ±{_rp(s.get('total_beli_produk', 0))} + "
+        f"opex) sebelum omzet COD cair. Saldo kas terendah {_rp(s.get('saldo_kas_min', 0))}. "
+        f"{bep_txt}{km_txt}"
+    )
+    out.append(
+        f"📈 **Laba bersih ±{_rp(s.get('net_profit', 0))}** (omzet − HPP terjual − iklan − "
+        f"ongkir retur − opex ±{_rp(s.get('total_opex', 0))}) → **ROI modal "
+        f"{s.get('roi_modal', 0):.0f}%**, ROI atas iklan {s.get('roi_iklan', 0):.0f}%."
     )
 
     # kapan COD mulai cair & puncak pencairan
@@ -62,17 +83,11 @@ def cashflow_insights(sim: dict) -> list[str]:
         )
 
     out.append(
-        f"Outstanding COD (dana tertahan) diperkirakan memuncak di "
-        f"{_rp(s['outstanding_peak'])}."
+        f"Outstanding omzet (sudah didapat tapi belum cair, menunggu paket diterima & "
+        f"settlement) memuncak di {_rp(s['outstanding_peak'])} — ini sumber utama kebutuhan modal awal."
     )
     out.append(
-        f"Estimasi kebutuhan MODAL KERJA ±{_rp(s['modal_kerja'])} — yaitu dana talangan "
-        f"untuk menutup jeda antara biaya iklan/ongkir di awal dengan pencairan COD "
-        f"yang baru masuk {p.get('mode')=='mode2' and 'tiap Senin/Selasa/Kamis' or 'beberapa hari kerja'} kemudian."
-    )
-    out.append(
-        f"Proyeksi net cashflow selama {s['horizon_days']} hari: "
-        f"{_rp(s['net_cashflow_total'])}. Dana cair minggu ini ±{_rp(s['cair_minggu_ini'])}, "
+        f"Dana cair minggu ini ±{_rp(s['cair_minggu_ini'])}, "
         f"bulan ini ±{_rp(s['cair_bulan_ini'])}."
     )
     return out
@@ -83,27 +98,35 @@ def geography_insights(prov: pd.DataFrame) -> list[str]:
         return []
     out = []
     top = prov.iloc[0]
+    retur_all = (prov["retur"].sum() / prov["resi"].sum() * 100) if prov["resi"].sum() else 0
     out.append(
-        f"Provinsi tujuan terbanyak: {top['provinsi']} dengan {_num(top['resi'])} resi "
-        f"(net {_rp(top['proyeksi_net'])}, SLA {top['sla']:.0f}%)."
+        f"🏆 Pasar terbesar: **{top['provinsi']}** — {_num(top['resi'])} resi, "
+        f"net {_rp(top['proyeksi_net'])}, sampai {top['sla']:.0f}%, retur {top['retur_pct']:.0f}%."
     )
-    # SLA terendah (min 20 resi)
-    sig = prov[prov["resi"] >= 20]
+    sig = prov[prov["resi"] >= 15]
     if not sig.empty:
-        worst = sig.sort_values("sla").iloc[0]
+        w = sig.sort_values("retur_pct", ascending=False).iloc[0]
         out.append(
-            f"SLA terendah di {worst['provinsi']} ({worst['sla']:.0f}% sampai, "
-            f"durasi rata² {worst['avg_durasi']} hari) — perlu perhatian operasional."
+            f"🔴 Retur tertinggi: **{w['provinsi']}** — {w['retur_pct']:.0f}% "
+            f"({_num(int(w['retur']))} dari {_num(int(w['resi']))} resi). "
+            f"Pertimbangkan **kurangi/hentikan iklan** ke wilayah ini, atau perketat "
+            f"verifikasi order (rata² retur nasional {retur_all:.0f}%)."
         )
-        slow = sig.sort_values("avg_durasi", ascending=False).iloc[0]
+        # wilayah volume besar TAPI retur tinggi = prioritas perbaikan
+        big_bad = sig[(sig["resi"] >= sig["resi"].median()) &
+                      (sig["retur_pct"] > retur_all)].sort_values("resi", ascending=False)
+        if not big_bad.empty:
+            b = big_bad.iloc[0]
+            out.append(
+                f"⚠️ Prioritas perbaikan: **{b['provinsi']}** bervolume besar "
+                f"({_num(int(b['resi']))} resi) sekaligus retur tinggi ({b['retur_pct']:.0f}%) — "
+                f"dampaknya paling besar ke biaya & modal tertahan."
+            )
+        safe = sig.sort_values(["retur_pct", "sla"], ascending=[True, False]).iloc[0]
         out.append(
-            f"Pengiriman terlama menuju {slow['provinsi']} "
-            f"(rata² {slow['avg_durasi']} hari)."
+            f"✅ Paling aman: **{safe['provinsi']}** — retur hanya {safe['retur_pct']:.0f}%, "
+            f"sampai {safe['sla']:.0f}%. Wilayah seperti ini layak **digenjot**."
         )
-    out.append(
-        f"Total outstanding COD dari paket belum sampai: "
-        f"{_rp(prov['outstanding'].sum())} tersebar di {len(prov)} provinsi."
-    )
     return out
 
 
@@ -113,43 +136,47 @@ def product_insights(prod: pd.DataFrame, pareto: dict) -> list[str]:
     out = []
     win = prod.iloc[0]
     out.append(
-        f"🏆 Winning product: **{win['produk']}** menyumbang {win['kontribusi_pct']:.1f}% "
-        f"net real ({_rp(win['net_real'])}) dari {_num(win['resi'])} resi."
+        f"🏆 **Winning: {win['produk']}** — kontribusi net terbesar {win['kontribusi_pct']:.1f}% "
+        f"({_rp(win['net_real'])}), margin {_rp(win['margin_jual_per_resi'])}/resi, "
+        f"sampai {win['sla']:.0f}%, retur {win['retur_pct']:.0f}%. Prioritas utama untuk di-scale."
     )
-    # margin jual per resi tertinggi (volume cukup, min 10 resi)
     sig = prod[prod["resi"] >= 10]
     if not sig.empty:
-        hi = sig.sort_values("margin_jual_per_resi", ascending=False).iloc[0]
+        # produk teraman: retur terendah + SLA tinggi
+        safe = sig.sort_values(["retur_pct", "sla"], ascending=[True, False]).iloc[0]
         out.append(
-            f"💎 Margin jual per resi tertinggi: **{hi['produk']}** "
-            f"({_rp(hi['margin_jual_per_resi'])}/resi, margin {hi['margin_pct']:.0f}%, "
-            f"{_num(hi['resi'])} resi) — paling layak digenjot iklannya."
+            f"✅ **Teraman: {safe['produk']}** — retur cuma {safe['retur_pct']:.0f}%, "
+            f"sampai {safe['sla']:.0f}% ({_num(safe['resi'])} resi). Paling minim risiko modal "
+            f"tertahan, aman digenjot terutama untuk pasar baru."
         )
-        # volume tinggi tapi SLA rendah -> risiko
-        risk = sig[sig["sla"] < 60].sort_values("resi", ascending=False)
+        # bintang: margin tinggi & aman sekaligus
+        star = sig[(sig["margin_jual_per_resi"] > sig["margin_jual_per_resi"].median()) &
+                   (sig["retur_pct"] < sig["retur_pct"].median())].sort_values(
+            "net_real", ascending=False)
+        if not star.empty:
+            stp = star.iloc[0]
+            out.append(
+                f"⭐ **{stp['produk']}** margin tinggi ({_rp(stp['margin_jual_per_resi'])}/resi) "
+                f"DAN aman (retur {stp['retur_pct']:.0f}%) — kombinasi terbaik."
+            )
+        # bahaya: volume tinggi tapi retur tinggi
+        risk = sig[sig["retur_pct"] > 30].sort_values("resi", ascending=False)
         if not risk.empty:
             r = risk.iloc[0]
             out.append(
-                f"⚠️ **{r['produk']}** bervolume tinggi ({_num(r['resi'])} resi) "
-                f"namun SLA hanya {r['sla']:.0f}% — banyak paket belum sampai, "
-                f"berisiko menahan pencairan COD."
+                f"⚠️ **{r['produk']}** retur tinggi ({r['retur_pct']:.0f}%, {_num(r['resi'])} resi) "
+                f"— banyak modal & ongkir terbuang; perketat target audiens/verifikasi order."
             )
-        # margin tipis / rugi setelah HPP
         thin = sig.sort_values("margin_jual_per_resi").iloc[0]
         if thin["margin_jual_per_resi"] < 0:
             out.append(
-                f"🔻 **{thin['produk']}** merugi setelah HPP "
-                f"({_rp(thin['margin_jual_per_resi'])}/resi) — evaluasi harga jual/HPP."
+                f"🔻 **{thin['produk']}** rugi setelah HPP "
+                f"({_rp(thin['margin_jual_per_resi'])}/resi) — naikkan harga atau tekan HPP."
             )
     if pareto:
         out.append(
-            f"📊 Prinsip Pareto: {pareto['n_produk_inti']} produk "
-            f"({pareto['share_produk']:.0f}% dari {pareto['n_produk_total']} produk) "
-            f"menyumbang ~{pareto['pct']:.0f}% net — fokuskan stok & iklan di sini."
+            f"📊 Pareto: cukup **{pareto['n_produk_inti']} produk** "
+            f"({pareto['share_produk']:.0f}% katalog) sudah menyumbang ~{pareto['pct']:.0f}% net "
+            f"— fokuskan stok, modal & iklan di sini."
         )
-    out.append(
-        f"AOV (rata² nilai order) tertinggi: "
-        f"**{prod.sort_values('aov', ascending=False).iloc[0]['produk']}** "
-        f"({_rp(prod['aov'].max())})."
-    )
     return out

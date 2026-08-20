@@ -29,6 +29,7 @@ def _base_layout(fig: go.Figure, title: str = "", height: int = 300) -> go.Figur
         legend=dict(bgcolor="rgba(0,0,0,0)", orientation="h",
                     yanchor="bottom", y=1.0, xanchor="right", x=1, font=dict(size=10)),
         hoverlabel=dict(bgcolor=T["card"], font_size=12),
+        separators=",.",   # format Indonesia: desimal koma, ribuan titik
     )
     fig.update_xaxes(gridcolor=T["grid"], zeroline=False, color=T["muted"])
     fig.update_yaxes(gridcolor=T["grid"], zeroline=False, color=T["muted"])
@@ -58,14 +59,18 @@ def fig_cashflow(df: pd.DataFrame, gran: str = "Harian") -> go.Figure:
     fig.add_bar(x=df["tanggal"], y=df["transfer_in"], name="Transfer Masuk",
                 marker_color=T["green"])
     fig.add_bar(x=df["tanggal"], y=df["cod_cair"], name="COD Cair",
-                marker_color=T["blue"])
-    fig.add_bar(x=df["tanggal"], y=-df["ad_spend"], name="Budget Iklan",
-                marker_color=T["red"])
+                marker_color=T["blue_soft"])
+    fig.add_bar(x=df["tanggal"], y=-df["ad_spend"], name="Iklan", marker_color=T["red"])
+    fig.add_bar(x=df["tanggal"], y=-df["hpp_spend"], name="Beli Produk (HPP)",
+                marker_color=T["amber"])
+    out2 = -(df["opex"] + df["return_ongkir"])
+    fig.add_bar(x=df["tanggal"], y=out2, name="Opex + Ongkir Retur",
+                marker_color=T["purple"])
     fig.add_trace(go.Scatter(x=df["tanggal"], y=df["net_cashflow"],
-                             name="Net Cashflow", mode="lines+markers",
-                             line=dict(color=T["amber"], width=2)))
+                             name="Net Cashflow", mode="lines",
+                             line=dict(color=T["text"], width=2)))
     fig.update_layout(barmode="relative")
-    return _base_layout(fig, f"Forecast Cashflow {gran}", 380)
+    return _base_layout(fig, f"Forecast Cashflow {gran}", 360)
 
 
 def fig_cum_cashflow(df: pd.DataFrame) -> go.Figure:
@@ -74,6 +79,42 @@ def fig_cum_cashflow(df: pd.DataFrame) -> go.Figure:
                              name="Akumulasi Net", mode="lines",
                              fill="tozeroy", line=dict(color=T["green"], width=2)))
     return _base_layout(fig, "Akumulasi Net Cashflow", 300)
+
+
+def fig_accumulation(tl: pd.DataFrame) -> go.Figure:
+    """
+    Multi-line akumulasi: Biaya Iklan, Beli Produk (HPP), dan Net Omzet.
+    Net Omzet: garis penuh = sudah cair; garis putus-putus = termasuk outstanding
+    (omzet sudah didapat tapi menunggu paket diterima & settlement ekspedisi).
+    Tooltip menampilkan nilai kumulatif & nilai harian per line.
+    """
+    x = tl["tanggal"]
+    ht = ("<b>%{fullData.name}</b><br>Kumulatif: %{y:,.0f}"
+          "<br>Hari ini: %{customdata:,.0f}<extra></extra>")
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=x, y=tl["cum_ad"], name="Akumulasi Biaya Iklan", mode="lines",
+        line=dict(color=T["red"], width=2), customdata=tl["ad_spend"], hovertemplate=ht))
+    fig.add_trace(go.Scatter(
+        x=x, y=tl["cum_hpp"], name="Akumulasi Beli Produk (HPP)", mode="lines",
+        line=dict(color=T["amber"], width=2), customdata=tl["hpp_spend"], hovertemplate=ht))
+    if "cum_opex" in tl and tl["cum_opex"].iloc[-1] > 0:
+        fig.add_trace(go.Scatter(
+            x=x, y=tl["cum_opex"], name="Akumulasi Operasional", mode="lines",
+            line=dict(color=T["purple"], width=1.5, dash="dot"),
+            customdata=tl["opex"], hovertemplate=ht))
+    # net omzet cair (realized) — garis penuh
+    fig.add_trace(go.Scatter(
+        x=x, y=tl["cum_omzet_realized"], name="Net Omzet (Cair)", mode="lines",
+        line=dict(color=T["green"], width=2.5),
+        customdata=tl["omzet_realized"], hovertemplate=ht))
+    # net omzet termasuk outstanding (earned) — garis putus-putus
+    fig.add_trace(go.Scatter(
+        x=x, y=tl["cum_omzet_earned"], name="Net Omzet + Outstanding (blm cair)",
+        mode="lines", line=dict(color=T["green_soft"], width=2, dash="dash"),
+        customdata=tl["omzet_earned"], hovertemplate=ht))
+    fig.update_layout(hovermode="x unified")
+    return _base_layout(fig, "Akumulasi Biaya Iklan vs Beli Produk vs Net Omzet", 420)
 
 
 def fig_outstanding_vs_cair(df: pd.DataFrame) -> go.Figure:
@@ -87,33 +128,122 @@ def fig_outstanding_vs_cair(df: pd.DataFrame) -> go.Figure:
     return _base_layout(fig, "Outstanding COD vs Dana Cair", 340)
 
 
-def fig_in_vs_out(df: pd.DataFrame) -> go.Figure:
-    inflow = df["transfer_in"] + df["cod_cair"]   # dana net masuk
-    outflow = df["ad_spend"]                        # pengeluaran kas (budget iklan)
+def fig_cash_journey(tl: pd.DataFrame, summary: dict) -> go.Figure:
+    """
+    Perjalanan kas kumulatif: Kas Keluar vs Kas Masuk (cair) vs Kas Masuk+Outstanding.
+    Jarak (Kas Keluar − Kas Masuk) di titik terlebar = MODAL yang harus ditalangi.
+    Titik dua garis berpotongan = BALIK MODAL. Tooltip: kumulatif + nilai harian.
+    """
+    x = tl["tanggal"]
+    ht = ("<b>%{fullData.name}</b><br>Kumulatif: %{y:,.0f}"
+          "<br>Hari ini: %{customdata:,.0f}<extra></extra>")
     fig = go.Figure()
-    fig.add_bar(x=df["tanggal"], y=inflow, name="Pemasukan (Net Cair)", marker_color=T["green"])
-    fig.add_bar(x=df["tanggal"], y=outflow, name="Pengeluaran (Iklan)", marker_color=T["red"])
+    # area gap (modal terpakai) = kas keluar di atas kas masuk
+    fig.add_trace(go.Scatter(x=x, y=tl["cum_cash_out"], name="Kas Keluar Kumulatif",
+                             mode="lines", line=dict(color=T["red"], width=2.5),
+                             customdata=tl["cash_out"], hovertemplate=ht))
+    fig.add_trace(go.Scatter(x=x, y=tl["cum_cash_in"], name="Kas Masuk (sudah cair)",
+                             mode="lines", line=dict(color=T["green"], width=2.5),
+                             fill="tonexty", fillcolor="rgba(255,92,92,0.12)",
+                             customdata=tl["cash_in"], hovertemplate=ht))
+    fig.add_trace(go.Scatter(x=x, y=tl["cum_omzet_earned"],
+                             name="Kas Masuk + Outstanding (blm cair)", mode="lines",
+                             line=dict(color=T["green_soft"], width=1.8, dash="dash"),
+                             customdata=tl["omzet_earned"], hovertemplate=ht))
+    # Laba/Saldo kas kumulatif = Kas Masuk − Kas Keluar kumulatif (rekonsiliasi dgn
+    # 2 garis kas di atas). Harian = net cashflow (surplus/defisit hari itu).
+    if "saldo_kas" in tl:
+        fig.add_trace(go.Scatter(x=x, y=tl["saldo_kas"],
+                                 name="Laba Bersih Kumulatif (Kas = Masuk − Keluar)",
+                                 mode="lines", line=dict(color=T["blue"], width=2.4),
+                                 customdata=tl["net_cashflow"], hovertemplate=ht))
+        fig.add_hline(y=0, line=dict(color=T["muted"], dash="dot", width=1))
+    # anotasi modal (gap terlebar)
+    gap = (tl["cum_cash_out"] - tl["cum_cash_in"])
+    gi = int(gap.idxmax())
+    if gap.iloc[gi] > 0:
+        fig.add_annotation(x=tl["tanggal"].iloc[gi], y=tl["cum_cash_out"].iloc[gi],
+                           ax=0, ay=-30, text=f"Modal {_rp(gap.iloc[gi])}",
+                           font=dict(color=T["amber"]), arrowcolor=T["amber"])
+    # anotasi BEP kas (kas kumulatif mulai positif) — BUKAN titik aman tarik modal
+    bm = summary.get("hari_bep_kas")
+    if bm is not None:
+        bt = tl["tanggal"].iloc[0] + pd.Timedelta(days=int(bm))
+        fig.add_vline(x=bt, line=dict(color=T["blue"], dash="dot"),
+                      annotation_text=f"Kas mulai positif H+{bm}",
+                      annotation_position="top left",
+                      annotation_font=dict(color=T["blue"], size=10))
+    # anotasi HARI AMAN KEMBALIKAN MODAL (saldo tak pernah minus lagi sesudahnya)
+    km = summary.get("hari_kembali_modal")
+    if km is not None and km != bm:
+        kt = tl["tanggal"].iloc[0] + pd.Timedelta(days=int(km))
+        fig.add_vline(x=kt, line=dict(color=T["green"], dash="dash", width=2),
+                      annotation_text=f"✓ Aman kembalikan modal H+{km}",
+                      annotation_position="top right",
+                      annotation_font=dict(color=T["green"], size=10))
+    fig.update_layout(hovermode="x unified")
+    return _base_layout(fig, "Perjalanan Kas: Keluar vs Masuk (area merah = modal ditalangi)", 440)
+
+
+def fig_daily_omzet(tl: pd.DataFrame) -> go.Figure:
+    """Proyeksi omzet/kas masuk harian, dipisah sumber: COD (cair) vs Transfer."""
+    fig = go.Figure()
+    fig.add_bar(x=tl["tanggal"], y=tl["transfer_in"], name="Transfer (prabayar, hari kirim)",
+                marker_color=T["green"],
+                hovertemplate="%{x|%a %d %b}<br>Transfer: %{y:,.0f}<extra></extra>")
+    fig.add_bar(x=tl["tanggal"], y=tl["cod_cair"], name="COD (cair saat settlement)",
+                marker_color=T["blue"],
+                hovertemplate="%{x|%a %d %b}<br>COD cair: %{y:,.0f}<extra></extra>")
+    fig.update_layout(barmode="stack", hovermode="x unified")
+    return _base_layout(fig, "Proyeksi Omzet/Kas Masuk Harian — COD vs Transfer", 340)
+
+
+def fig_saldo_kas(df: pd.DataFrame) -> go.Figure:
+    """Saldo kas kumulatif harian — titik terdalam = modal awal dibutuhkan."""
+    fig = go.Figure()
+    color = [T["green"] if v >= 0 else T["red"] for v in df["saldo_kas"]]
+    fig.add_trace(go.Scatter(
+        x=df["tanggal"], y=df["saldo_kas"], name="Saldo Kas", mode="lines",
+        fill="tozeroy", line=dict(color=T["blue"], width=2),
+        hovertemplate="%{x|%d %b}<br>Saldo: %{y:,.0f}<extra></extra>"))
+    fig.add_hline(y=0, line=dict(color=T["muted"], dash="dot"))
+    tmin = df.loc[df["saldo_kas"].idxmin()]
+    fig.add_annotation(x=tmin["tanggal"], y=tmin["saldo_kas"],
+                       text=f"Modal awal {_rp(-tmin['saldo_kas'])}",
+                       showarrow=True, arrowcolor=T["amber"], font=dict(color=T["amber"]))
+    return _base_layout(fig, "Saldo Kas Harian (titik terdalam = kebutuhan modal)", 340)
+
+
+def fig_in_vs_out(df: pd.DataFrame) -> go.Figure:
+    inflow = df["transfer_in"] + df["cod_cair"]
+    outflow = df["ad_spend"] + df["hpp_spend"] + df["opex"] + df["return_ongkir"]
+    fig = go.Figure()
+    fig.add_bar(x=df["tanggal"], y=inflow, name="Kas Masuk", marker_color=T["green"])
+    fig.add_bar(x=df["tanggal"], y=outflow, name="Kas Keluar (iklan+HPP+opex+retur)",
+                marker_color=T["red"])
     fig.update_layout(barmode="group")
-    return _base_layout(fig, "Pengeluaran vs Pemasukan (Kas)", 340)
+    return _base_layout(fig, "Kas Masuk vs Kas Keluar", 340)
 
 
 def fig_expense_breakdown(summary: dict) -> go.Figure:
-    """Waterfall pembentuk Net (omzet): Nilai Produk + Cashback − COD Fee."""
+    """Waterfall Laba-Rugi: Omzet − HPP − Iklan − Ongkir Retur − Opex = Laba Bersih."""
     fig = go.Figure(go.Waterfall(
         orientation="v",
-        measure=["relative", "relative", "relative", "total"],
-        x=["Nilai Produk", "Cashback Ongkir", "COD Fee", "Net (Omzet)"],
-        y=[summary["total_nilai_produk"], summary["total_cashback"],
-           -summary["total_cod_fee"], None],
-        text=[_rp(summary["total_nilai_produk"]), _rp(summary["total_cashback"]),
-              "-" + _rp(summary["total_cod_fee"]), _rp(summary["total_net"])],
+        measure=["relative", "relative", "relative", "relative", "relative", "total"],
+        x=["Omzet Kotor", "HPP (terjual)", "Biaya Iklan", "Ongkir Retur",
+           "Operasional", "Laba Bersih"],
+        y=[summary["total_revenue"], -summary["total_cogs"], -summary["budget_iklan"],
+           -summary["total_return_cost"], -summary["total_opex"], None],
+        text=[_rp(summary["total_revenue"]), "-" + _rp(summary["total_cogs"]),
+              "-" + _rp(summary["budget_iklan"]), "-" + _rp(summary["total_return_cost"]),
+              "-" + _rp(summary["total_opex"]), _rp(summary["net_profit"])],
         textposition="outside",
         connector=dict(line=dict(color=T["grid"])),
         increasing=dict(marker=dict(color=T["green"])),
         decreasing=dict(marker=dict(color=T["red"])),
         totals=dict(marker=dict(color=T["blue"])),
     ))
-    return _base_layout(fig, "Pembentukan Net / Omzet", 320)
+    return _base_layout(fig, "Laba-Rugi: dari Omzet ke Laba Bersih", 340)
 
 
 def fig_cod_vs_transfer(summary: dict) -> go.Figure:
@@ -149,18 +279,21 @@ def fig_payout_calendar(df: pd.DataFrame) -> go.Figure:
     return _base_layout(fig, "Kalender Pencairan COD", 320)
 
 
-# ------------------------------------------------------------------ MODUL 2
+# ------------------------------------------------------------------ MODUL WILAYAH
 def fig_bubble_map(prov: pd.DataFrame, metric: str = "resi",
-                   label: str = "Jumlah Resi") -> go.Figure:
+                   label: str = "Jumlah Resi", reverse: bool = False) -> go.Figure:
+    """reverse=True untuk metrik 'makin tinggi makin buruk' (retur, durasi) →
+    merah=buruk(tinggi), hijau=baik(rendah)."""
     d = prov.dropna(subset=["lat", "lon"]).copy()
-    # provinsi tanpa nilai (mis. durasi NaN krn paket masih transit) -> 0
     d[metric] = pd.to_numeric(d[metric], errors="coerce").fillna(0)
+    size_src = d[metric].abs()
     fig = go.Figure(go.Scattergeo(
         lon=d["lon"], lat=d["lat"], text=d["provinsi"],
         marker=dict(
-            size=d[metric], sizemode="area",
-            sizeref=2.0 * d[metric].max() / (45 ** 2) if d[metric].max() else 1,
+            size=size_src, sizemode="area",
+            sizeref=2.0 * size_src.max() / (45 ** 2) if size_src.max() else 1,
             sizemin=4, color=d[metric], colorscale=config.COLORSCALE,
+            reversescale=reverse,
             showscale=True, line=dict(width=0.5, color="rgba(255,255,255,0.4)"),
             colorbar=dict(title=label)),
         hovertemplate="<b>%{text}</b><br>" + label + ": %{marker.color:,.0f}<extra></extra>",
@@ -173,14 +306,30 @@ def fig_bubble_map(prov: pd.DataFrame, metric: str = "resi",
     return _base_layout(fig, f"Peta Sebaran ({label})", 460)
 
 
+def fig_retur_ranking(prov: pd.DataFrame, n: int = 12, min_resi: int = 15) -> go.Figure:
+    """Ranking wilayah paling bermasalah (retur %) — terburuk di atas."""
+    d = prov[prov["resi"] >= min_resi].nlargest(n, "retur_pct").iloc[::-1]
+    fig = go.Figure(go.Bar(
+        x=d["retur_pct"], y=d["provinsi"], orientation="h",
+        marker=dict(color=d["retur_pct"], colorscale=config.COLORSCALE, reversescale=True),
+        text=[f"{p:.0f}% ({r} resi)" for p, r in zip(d["retur_pct"], d["retur"])],
+        textposition="auto",
+        customdata=d[["retur", "resi"]].values,
+        hovertemplate="<b>%{y}</b><br>Retur: %{x:.1f}%<br>"
+                      "%{customdata[0]} dari %{customdata[1]} resi<extra></extra>"))
+    fig.update_xaxes(ticksuffix="%")
+    return _base_layout(fig, f"🔴 Wilayah Paling Bermasalah (Retur %, min {min_resi} resi)", 380)
+
+
 def fig_choropleth(prov: pd.DataFrame, geojson: dict, metric: str = "resi",
-                   label: str = "Jumlah Resi") -> go.Figure:
+                   label: str = "Jumlah Resi", reverse: bool = False) -> go.Figure:
     prov = prov.copy()
     prov[metric] = pd.to_numeric(prov[metric], errors="coerce").fillna(0)
+    _cs = [c for _, c in config.COLORSCALE]           # ["#FF5C5C","#F5C542","#19C37D"]
     fig = px.choropleth(
         prov, geojson=geojson, locations="provinsi",
         featureidkey="properties.Propinsi", color=metric,
-        color_continuous_scale=config.COLORSCALE)
+        color_continuous_scale=(_cs[::-1] if reverse else _cs))
     fig.update_geos(scope="asia", center=dict(lat=-2.5, lon=118),
                     lataxis_range=[-11, 7], lonaxis_range=[94, 142],
                     bgcolor="rgba(0,0,0,0)", visible=False)
@@ -230,11 +379,11 @@ def fig_region_perf(df: pd.DataFrame, col: str = "provinsi", n: int = 12) -> go.
     d = df.nlargest(n, "resi")
     fig = go.Figure()
     fig.add_bar(x=d[col], y=d["resi"], name="Resi", marker_color=T["blue"])
-    fig.add_trace(go.Scatter(x=d[col], y=d["sla"], name="SLA %", yaxis="y2",
+    fig.add_trace(go.Scatter(x=d[col], y=d["sla"], name="% Sampai", yaxis="y2",
                              mode="lines+markers", line=dict(color=T["green"])))
     fig.update_layout(yaxis2=dict(overlaying="y", side="right", range=[0, 100],
                                   color=T["muted"], showgrid=False))
-    return _base_layout(fig, f"Performa {col.title()} (Resi vs SLA)", 360)
+    return _base_layout(fig, f"Performa {col.title()} (Resi vs % Sampai)", 360)
 
 
 # ------------------------------------------------------------------ MODUL 3
@@ -301,8 +450,8 @@ def fig_product_sla(prod: pd.DataFrame, n: int = 12) -> go.Figure:
     d = prod.nlargest(n, "resi")
     fig = go.Figure()
     fig.add_bar(x=d["produk"], y=d["resi"], name="Resi", marker_color=T["blue"])
-    fig.add_trace(go.Scatter(x=d["produk"], y=d["sla"], name="SLA %", yaxis="y2",
+    fig.add_trace(go.Scatter(x=d["produk"], y=d["sla"], name="% Sampai", yaxis="y2",
                              mode="lines+markers", line=dict(color=T["green"])))
     fig.update_layout(yaxis2=dict(overlaying="y", side="right", range=[0, 100],
                                   color=T["muted"], showgrid=False))
-    return _base_layout(fig, "Volume vs SLA per Produk (Top Volume)", 380)
+    return _base_layout(fig, "Volume vs % Sampai per Produk (Top Volume)", 380)

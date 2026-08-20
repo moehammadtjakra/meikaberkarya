@@ -35,6 +35,26 @@ SHEET_SETTLE_ALT = "settle_reconsile"  # ejaan alternatif sesuai brief
 SHEET_PROBLEM = "problem"
 
 # ---------------------------------------------------------------------------
+# SUMBER DATA  ("excel" = file lokal | "gsheet" = Google Sheet via Apps Script)
+# ---------------------------------------------------------------------------
+DATA_SOURCE = "excel"          # ganti "gsheet" untuk baca live dari Google Sheet
+GSHEET_WEBAPP_URL = "https://script.google.com/a/macros/ekismudaberkarya.id/s/AKfycbxnvPdpFbGJ6FvN8nUvqmqLctSBpPZVOvpTcoPt5UQn4GD31YEay5oXHKgZNgJiH74W/exec"         # URL Web App Apps Script (yang berakhiran /exec)
+GSHEET_TOKEN = "G5p1R3Q64JaOhRoSB5BBvO0vtSZscqitdAAGXACxgGH0zlhTh6iQCe14D5qUDUil"              # token rahasia (sama dgn DATA_TOKEN di Apps Script)
+
+# Override rahasia dari file lokal (secrets_local.py) yang TIDAK ikut ke git.
+# Cara aman menaruh URL & token tanpa mengubah config.py. Lihat
+# secrets_local.example.py. Bila file tidak ada, memakai nilai default di atas.
+try:
+    from secrets_local import *  # noqa: F401,F403  (override DATA_SOURCE/URL/TOKEN)
+except Exception:
+    pass
+
+# Boleh juga lewat environment variable (mis. untuk Streamlit Cloud / server).
+DATA_SOURCE = os.environ.get("DATA_SOURCE", DATA_SOURCE)
+GSHEET_WEBAPP_URL = os.environ.get("GSHEET_WEBAPP_URL", GSHEET_WEBAPP_URL)
+GSHEET_TOKEN = os.environ.get("GSHEET_TOKEN", GSHEET_TOKEN)
+
+# ---------------------------------------------------------------------------
 # PEMETAAN KOLOM (nama asli di Excel -> nama kanonik internal)
 # ---------------------------------------------------------------------------
 # Dengan memetakan ke nama kanonik, modul lain tidak bergantung pada ejaan
@@ -92,6 +112,7 @@ TIPE_NONCOD = "NONCOD"
 DEFAULTS = {
     "budget_iklan": 100_000_000,  # total (otomatis = budget_harian x horizon)
     "budget_harian": 3_000_000,   # budget iklan per hari (Rp)
+    "n_cs": 3,                    # jumlah customer service default
     "hpp_ratio": 0.40,            # default HPP = 40% dari Nilai Produk
     "cpl": 8_000,                 # Cost per lead (Rp)
     "closing_rate": 0.30,         # % lead -> order
@@ -111,8 +132,9 @@ HORIZON_OPTIONS = [7, 14, 30, 60, 90]
 # ---------------------------------------------------------------------------
 # ATURAN SETTLEMENT / PENCAIRAN
 # ---------------------------------------------------------------------------
-# Mode 1: cair setiap hari kerja (settlement harian) dengan jeda rata-rata.
-SETTLE_DAILY_LAG_DEFAULT = 2  # hari kerja setelah paket diterima
+# Skema Baru: cair H+1 hari kerja setelah paket DITERIMA (mis. diterima Kamis
+# -> cair Jumat; diterima Jumat -> cair Senin; diterima Senin -> cair Selasa).
+SETTLE_DAILY_LAG_DEFAULT = 1  # hari kerja setelah paket diterima (H+1)
 
 # Mode 2 (default): cair Senin / Selasa / Kamis.
 # Mapping: hari paket DITERIMA (weekday Python: Mon=0..Sun=6) -> hari CAIR.
@@ -132,9 +154,19 @@ PAYOUT_WEEKDAY = {"Senin": 0, "Selasa": 1, "Rabu": 2, "Kamis": 3,
                   "Jumat": 4, "Sabtu": 5, "Minggu": 6}
 
 SETTLE_MODES = {
-    "Mode 2 - Cair Senin/Selasa/Kamis (Default)": "mode2",
-    "Mode 1 - Cair Setiap Hari Kerja": "mode1",
+    "Skema Lama — Cair Senin/Selasa/Kamis": "mode2",
+    "Skema Baru — Cair H+1 Hari Kerja": "mode1",
 }
+
+# Aturan ongkir retur J&T: gratis bila persentase retur <= ambang; jika melebihi,
+# biaya = (retur% − ambang) × total ongkir PENUH (tanpa diskon) dari paket retur.
+RETUR_FREE_THRESHOLD = 0.20  # 20%
+
+# Rekomendasi standar performa wilayah (default; bisa disesuaikan di dashboard).
+# Retur maks 20% selaras dengan ambang GRATIS ongkir retur J&T — di atasnya mulai
+# kena biaya. Sampai min 60% = batas sehat agar mayoritas order menghasilkan kas.
+TARGET_SAMPAI_MIN = 60   # % paket sampai minimal (rekomendasi)
+TARGET_RETUR_MAX = 20    # % retur maksimal (rekomendasi)
 
 # ---------------------------------------------------------------------------
 # TEMA VISUAL (Dark, dominan biru-hijau, ala Power BI / Tableau)
@@ -156,13 +188,13 @@ THEME = {
     "purple": "#9B7BFF",
 }
 
-# Skala warna kontinu untuk peta / heatmap (biru -> hijau).
+# Skala warna kontinu (rendah -> tinggi): MERAH -> KUNING -> HIJAU.
+# Untuk metrik "makin tinggi makin baik" (resi, net): hijau = tinggi.
+# Untuk metrik "makin tinggi makin buruk" (retur, durasi): pakai reversescale.
 COLORSCALE = [
-    [0.0, "#0E2A47"],
-    [0.35, "#1B6CB8"],
-    [0.6, "#16A0A0"],
-    [0.85, "#19C37D"],
-    [1.0, "#7CF5B0"],
+    [0.0, "#FF5C5C"],   # merah  (rendah / buruk)
+    [0.5, "#F5C542"],   # kuning (menengah)
+    [1.0, "#19C37D"],   # hijau  (tinggi / baik)
 ]
 
 CATEGORICAL_COLORS = ["#2E8BFF", "#19C37D", "#16C2C2", "#9B7BFF",

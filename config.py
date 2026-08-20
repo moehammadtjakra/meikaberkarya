@@ -35,6 +35,50 @@ SHEET_SETTLE_ALT = "settle_reconsile"  # ejaan alternatif sesuai brief
 SHEET_PROBLEM = "problem"
 
 # ---------------------------------------------------------------------------
+# SUMBER DATA  ("excel" = file lokal | "gsheet" = Google Sheet)
+# ---------------------------------------------------------------------------
+DATA_SOURCE = "gsheet"         # SUMBER UTAMA: Google Sheet live
+
+# Mode koneksi GSheet:
+#   "oauth"  = baca sheet LANGSUNG sebagai akun Google Anda (login sekali via
+#              browser). Dipakai karena org memblokir web app publik & SA key.
+#   "webapp" = via Apps Script Web App (butuh deployment 'Anyone' — DIBLOKIR org).
+GSHEET_MODE = "oauth"
+
+# --- Mode OAUTH (baca langsung) ---
+GSHEET_ID = ""                                     # ID spreadsheet (URL /d/<ID>/edit)
+GSHEET_TAB_ALL_RESI = "All Resi"                   # nama TAB di GSheet
+GSHEET_TAB_SETTLE = "Settle Reconcile"
+GSHEET_TAB_PROBLEM = "Laporan Paket Tertunda"
+# Sheet admin (importrange): order & stok. Coba beberapa kemungkinan nama tab.
+GSHEET_TAB_ORDER = ["Import-Order", "ORDERS", "Orders", "Order", "Import Order"]
+GSHEET_TAB_STOCK = ["Import-Stock", "STOK", "Stok", "Stock", "Import Stock"]
+GSHEET_OAUTH_CRED = os.path.join(BASE_DIR, "credentials", "oauth_client.json")
+GSHEET_OAUTH_TOKEN = os.path.join(BASE_DIR, "credentials", "authorized_user.json")
+# Untuk DEPLOY headless (Streamlit Cloud): isi via st.secrets (bukan file).
+# dict isi oauth_client.json & authorized_user.json. Bila keduanya terisi,
+# loader pakai gspread.oauth_from_dict (tanpa browser).
+GSHEET_OAUTH_CLIENT_INFO = None
+GSHEET_OAUTH_AUTHORIZED_INFO = None
+
+# --- Mode WEBAPP (tidak dipakai; kosong — isi via secrets_local.py bila perlu) ---
+GSHEET_WEBAPP_URL = ""
+GSHEET_TOKEN = ""
+
+# Override rahasia dari file lokal (secrets_local.py) yang TIDAK ikut ke git.
+try:
+    from secrets_local import *  # noqa: F401,F403
+except Exception:
+    pass
+
+# Boleh juga lewat environment variable (mis. server / Streamlit Cloud).
+DATA_SOURCE = os.environ.get("DATA_SOURCE", DATA_SOURCE)
+GSHEET_MODE = os.environ.get("GSHEET_MODE", GSHEET_MODE)
+GSHEET_ID = os.environ.get("GSHEET_ID", GSHEET_ID)
+GSHEET_WEBAPP_URL = os.environ.get("GSHEET_WEBAPP_URL", GSHEET_WEBAPP_URL)
+GSHEET_TOKEN = os.environ.get("GSHEET_TOKEN", GSHEET_TOKEN)
+
+# ---------------------------------------------------------------------------
 # PEMETAAN KOLOM (nama asli di Excel -> nama kanonik internal)
 # ---------------------------------------------------------------------------
 # Dengan memetakan ke nama kanonik, modul lain tidak bergantung pada ejaan
@@ -90,6 +134,7 @@ TIPE_NONCOD = "NONCOD"
 # Nilai sebenarnya akan dihitung ulang dari data oleh forecasting.py
 # ---------------------------------------------------------------------------
 DEFAULTS = {
+    "modal_awal": 200_000_000,    # modal awal / kas awal yang disiapkan (Rp)
     "budget_iklan": 100_000_000,  # total (otomatis = budget_harian x horizon)
     "budget_harian": 3_000_000,   # budget iklan per hari (Rp)
     "n_cs": 3,                    # jumlah customer service default
@@ -105,7 +150,18 @@ DEFAULTS = {
     "pct_cod": 0.65,              # 65% order COD
     "horizon_days": 30,
     "avg_durasi": 7,
+    "opex_fix_bulan": 0,          # opex TETAP/bulan (gaji, sewa) — lump saat gajian
+    "opex_var_resi": 0,           # opex VARIABEL per resi (packing, petty cash)
+    "payday": 25,                 # tanggal gajian (hari dalam bulan) utk opex tetap
 }
+
+# Auto-plotting budget iklan & CPL per produk (dari data order/stok)
+CPL_MIN = 9_000               # CPL realistis minimum (Rp/lead)
+CPL_MAX = 25_000              # CPL realistis maksimum (Rp/lead)
+CPL_TARGET_FRAC = 0.5         # CPL disetel = breakeven CPL x fraksi ini (ROAS ~2x)
+BUDGET_MIN_PRODUK = 100_000   # budget iklan minimum per produk profitabel (Rp/hari)
+BUDGET_MIN_MAXFLOOR = 300_000 # batas atas rentang "minimum default" (Rp/hari)
+BUDGET_MAX_PRODUK = 3_000_000 # budget iklan maksimum per produk (CM terbaik) (Rp/hari)
 
 HORIZON_OPTIONS = [7, 14, 30, 60, 90]
 

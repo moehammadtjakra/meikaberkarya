@@ -1,0 +1,17 @@
+# Kredensial & rahasia — JANGAN commit
+secrets_local.py
+credentials/
+*.json
+.streamlit/secrets.toml
+
+# Planning tersimpan (skenario lokal)
+plans/
+
+# Cache Python
+__pycache__/
+*.pyc
+
+# Build artefak
+build/
+dist/
+*.spec

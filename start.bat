@@ -23,10 +23,10 @@ if errorlevel 1 (
     exit /b
 )
 
-REM pasang dependency hanya jika streamlit belum ada
-python -c "import streamlit" >nul 2>&1
+REM pasang dependency bila streamlit ATAU requests belum ada
+python -c "import streamlit, requests, gspread" >nul 2>&1
 if errorlevel 1 (
-    echo [i] Memasang dependency pertama kali, mohon tunggu...
+    echo [i] Memasang/memperbarui dependency, mohon tunggu...
     python -m pip install --upgrade pip
     python -m pip install -r requirements.txt
 )

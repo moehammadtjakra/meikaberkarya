@@ -46,11 +46,73 @@ def _read_sheet(xl: pd.ExcelFile, *names: str) -> pd.DataFrame | None:
     return None
 
 
+def load_from_gsheet_webapp() -> dict:
+    """
+    Baca data langsung dari Google Sheet lewat endpoint Web App Apps Script
+    (mode=data&token=...). Endpoint mengembalikan JSON:
+        {"all_resi": [[header],[row],...], "settle_reconcile": [...], "problem": [...]}
+    Tiap tabel diubah menjadi DataFrame (header di baris pertama).
+    """
+    import time
+    import requests
+
+    url = getattr(config, "GSHEET_WEBAPP_URL", "")
+    token = getattr(config, "GSHEET_TOKEN", "")
+    if not url:
+        raise ValueError("GSHEET_WEBAPP_URL belum diisi (config.py / secrets_local.py).")
+
+    r = requests.get(url, params={"mode": "data", "token": token},
+                     timeout=120, allow_redirects=True)
+    r.raise_for_status()
+    try:
+        data = r.json()
+    except ValueError:
+        raise ValueError("Respons GSheet bukan JSON — cek URL /exec, token, & akses "
+                         "deployment (harus 'Anyone').")
+    if isinstance(data, dict) and data.get("error"):
+        raise PermissionError("Akses GSheet ditolak — token salah / deployment bukan "
+                              "'Anyone'.")
+
+    def _df(rows):
+        if not rows:
+            return None
+        d = pd.DataFrame(rows[1:], columns=rows[0])
+        # Angka dari getValues() datang sebagai number asli (JSON), tapi sel kosong
+        # jadi "" -> kolom bertipe object. Ubah kolom yang mayoritas numerik ke
+        # numeric agar pembersihan hilir tidak salah parse (hindari isu lokal desimal).
+        d = d.replace("", pd.NA)
+        for c in d.columns:
+            conv = pd.to_numeric(d[c], errors="coerce")
+            nonnull = d[c].notna().sum()
+            if nonnull and conv.notna().sum() >= 0.8 * nonnull:
+                d[c] = conv
+        return d
+
+    all_resi = _df(data.get("all_resi"))
+    if all_resi is None or all_resi.empty:
+        raise ValueError("Tab 'All Resi' kosong / tidak ditemukan di Google Sheet.")
+
+    return {
+        "all_resi": all_resi,
+        "settle": _df(data.get("settle_reconcile")),
+        "problem": _df(data.get("problem")),
+        "path": "Google Sheet (live)",
+        "mtime": time.time(),
+        "sheets": list(data.keys()),
+    }
+
+
 def load_workbook(path: str | None = None) -> dict:
     """
-    Baca seluruh sheet relevan dari workbook.
-    Mengembalikan dict: {'all_resi': df, 'settle': df|None, 'problem': df|None, 'path', 'mtime'}
+    Baca seluruh sheet relevan. Sumber ditentukan config.DATA_SOURCE:
+      - "gsheet" (dan URL terisi) -> tarik live dari Google Sheet (Apps Script).
+      - selain itu -> baca file Excel lokal (perilaku lama, tetap sebagai fallback).
+    Mengembalikan dict: {'all_resi', 'settle'|None, 'problem'|None, 'path', 'mtime', 'sheets'}
     """
+    if (getattr(config, "DATA_SOURCE", "excel") == "gsheet"
+            and getattr(config, "GSHEET_WEBAPP_URL", "")):
+        return load_from_gsheet_webapp()
+
     path = path or find_excel()
     xl = pd.ExcelFile(path, engine="openpyxl")
 

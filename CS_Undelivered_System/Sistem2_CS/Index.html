@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <!-- Cegah browser menyimpan versi lama: begitu supervisor deploy versi baru,
+       cukup refresh (F5) dan halaman langsung memuat versi terbaru, bukan cache. -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root{--jt:#9E1B1B;--jt-dark:#7B241C;--ink:#1f2933;--muted:#6b7280;--bg:#f5f6f8;--card:#fff;
+          --line:#e5e7eb;--ok:#0f9d58;--blue:#1a56c4;--warn:#c2410c;}
+    *{box-sizing:border-box;}
+    body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;background:var(--bg);color:var(--ink);}
+    /* banner versi baru */
+    .verbar{display:none;position:sticky;top:0;z-index:99;background:#1f2933;color:#fff;
+            padding:9px 14px;font-size:13px;align-items:center;justify-content:space-between;gap:12px;}
+    .verbar.show{display:flex;}
+    .verbar i{font-style:normal;opacity:.75;margin-left:6px;font-size:12px;}
+    .verbtn{background:#fff;color:#1f2933;border:0;border-radius:7px;padding:6px 12px;
+            font-size:12.5px;font-weight:700;cursor:pointer;}
+    .verx{background:none;border:0;color:#fff;opacity:.6;cursor:pointer;font-size:14px;padding:0 4px;}
+    .verx:hover{opacity:1;}
+    /* loader progress per section */
+    .load{padding:22px 12px;text-align:center;color:var(--muted);font-size:13px;}
+    .load b{color:var(--jt);}
+    .load .track{max-width:220px;height:6px;background:#eef2f7;border-radius:4px;margin:8px auto 0;overflow:hidden;}
+    .load .bar{height:100%;width:0;background:var(--jt);border-radius:4px;transition:width .25s ease;}
+    .spin.g{border-color:#c9ccd1;border-top-color:transparent;}
+    .wrap{max-width:1040px;margin:0 auto;padding:16px 14px 56px;}
+    header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap;}
+    .brand{display:flex;align-items:center;gap:10px;}
+    .logo{background:var(--jt);color:#fff;font-weight:800;padding:6px 10px;border-radius:8px;font-size:14px;}
+    h1{font-size:17px;margin:0;}
+    .who{font-size:12.5px;color:var(--muted);text-align:right;line-height:1.45;}
+    .who b{color:var(--ink);}
+
+    .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:14px;overflow-x:auto;}
+    .tabs button{background:none;border:0;padding:10px 14px;font-size:13.5px;font-weight:600;color:var(--muted);
+                 cursor:pointer;border-bottom:2.5px solid transparent;white-space:nowrap;display:flex;align-items:center;gap:6px;}
+    .tabs button.active{color:var(--jt);border-bottom-color:var(--jt);}
+    .tabs .badge{background:#eef2f7;color:#334;font-size:11px;padding:1px 7px;border-radius:20px;font-weight:700;}
+    .tabs button.active .badge{background:#fdeaea;color:var(--jt);}
+
+    .filters{display:grid;grid-template-columns:2fr 1.2fr auto;gap:9px;align-items:end;margin-bottom:12px;}
+    .filters.super{grid-template-columns:2fr 1.2fr 1.2fr auto;}
+    label.fld{display:block;font-size:11.5px;color:var(--muted);margin-bottom:3px;}
+    select.sel,input.txt,textarea.ta{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;
+      font-size:13.5px;background:#fff;font-family:inherit;color:var(--ink);}
+    select.sel:focus,input.txt:focus,textarea.ta:focus{outline:none;border-color:var(--jt);box-shadow:0 0 0 3px rgba(158,27,27,.08);}
+    textarea.ta{min-height:76px;resize:vertical;}
+    button.primary{background:var(--jt);color:#fff;border:0;border-radius:8px;padding:10px 15px;font-size:13.5px;font-weight:600;cursor:pointer;}
+    button.primary:hover{background:var(--jt-dark);}
+    button.primary:disabled,button.ghost:disabled{opacity:.55;cursor:not-allowed;}
+    button.ghost{background:#fff;color:var(--jt);border:1px solid var(--line);border-radius:8px;padding:9px 13px;
+      font-size:12.5px;font-weight:600;cursor:pointer;}
+    .count{font-size:12.5px;color:var(--muted);}
+
+    /* sub-tab status followup (di dalam tab "Sedang Diantar") */
+    .subtabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;margin-bottom:12px;-webkit-overflow-scrolling:touch;}
+    .subtabs button{flex:0 0 auto;background:#fff;border:1px solid var(--line);border-radius:999px;
+      padding:8px 13px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;display:flex;
+      align-items:center;gap:7px;white-space:nowrap;}
+    .subtabs button.active{background:var(--jt);border-color:var(--jt);color:#fff;}
+    .subtabs .cnt{background:#eef2f7;color:#334;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;}
+    .subtabs button.active .cnt{background:rgba(255,255,255,.25);color:#fff;}
+
+    /* layout: sidebar kategori (kiri) + daftar (kanan) */
+    .worklayout{display:grid;grid-template-columns:230px 1fr;gap:16px;align-items:start;}
+    .katbar{position:sticky;top:8px;border:1px solid var(--line);border-radius:12px;background:#fff;overflow:hidden;}
+    .katbar .kathead{font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;
+      letter-spacing:.03em;padding:11px 13px 7px;}
+    .katbar button{display:flex;width:100%;justify-content:space-between;align-items:center;gap:8px;
+      background:none;border:0;border-top:1px solid var(--line);padding:10px 13px;font-size:13px;
+      color:var(--ink);cursor:pointer;text-align:left;line-height:1.35;}
+    .katbar button:hover{background:#faf7ff;}
+    .katbar button.active{background:#f3e8ff;color:#6b21a8;font-weight:700;box-shadow:inset 3px 0 0 var(--jt);}
+    .katbar .kn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;}
+    .katbar .kc{flex:0 0 auto;background:#eef2f7;color:#334;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;}
+    .katbar button.active .kc{background:#e9d5ff;color:#6b21a8;}
+    @media(max-width:760px){
+      .worklayout{grid-template-columns:1fr;}
+      .katbar{position:static;display:flex;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+      .katbar .kathead{display:none;}
+      .katbar button{width:auto;flex:0 0 auto;border-top:0;border-right:1px solid var(--line);white-space:nowrap;}
+      .katbar button.active{box-shadow:inset 0 -3px 0 var(--jt);}
+    }
+
+    .toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:9px;flex-wrap:wrap;}
+    .pgsize{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted);}
+    .pgsize select{padding:5px 8px;border:1px solid var(--line);border-radius:7px;font-size:12.5px;background:#fff;}
+    .pager{display:flex;justify-content:center;align-items:center;gap:8px;margin-top:14px;flex-wrap:wrap;}
+    .pager button{background:#fff;border:1px solid var(--line);border-radius:8px;padding:7px 13px;font-size:13px;
+                  font-weight:600;cursor:pointer;color:var(--ink);}
+    .pager button:hover:not(:disabled){border-color:var(--jt);color:var(--jt);}
+    .pager button:disabled{opacity:.45;cursor:not-allowed;}
+    .pager .pg{font-size:12.5px;color:var(--muted);padding:0 6px;}
+
+    .item{background:#fff;border:1px solid var(--line);border-radius:11px;padding:12px 14px;margin-bottom:9px;
+          cursor:pointer;transition:.12s;}
+    .item:hover{border-color:var(--jt);box-shadow:0 1px 6px rgba(0,0,0,.05);}
+    .item.alert{border-left:4px solid var(--warn);}
+    .item .top{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+    .wb{font-weight:700;font-size:14px;}
+    .sub{font-size:12.5px;color:var(--muted);margin-top:3px;}
+    .money{font-size:12.5px;margin-top:5px;display:flex;gap:14px;flex-wrap:wrap;}
+    .money .pos{color:var(--ok);}
+    .tags{display:flex;gap:6px;flex-wrap:wrap;align-items:flex-start;}
+    .tag{font-size:11px;padding:2px 9px;border-radius:20px;background:#eef2f7;color:#334;white-space:nowrap;}
+    .tag.diantar{background:#e8f0fe;color:var(--blue);}
+    .tag.trk{background:#f3e8ff;color:#6b21a8;}
+    /* catatan tracking J&T di modal followup */
+    .trkbox2{margin:12px 0;padding:11px 13px;border:1px solid #e9d5ff;background:#faf5ff;border-radius:10px;}
+    .trkhead{font-size:12.5px;font-weight:700;color:#6b21a8;margin-bottom:6px;}
+    .trkrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px;}
+    .trkwkt{font-size:11.5px;color:var(--muted);}
+    .trkket{font-size:12.5px;color:var(--ink);margin-bottom:6px;}
+    .trkals{font-size:12.5px;padding:7px 9px;background:#fff;border:1px solid #e9d5ff;border-radius:7px;}
+    .trknote{font-size:11.5px;color:var(--muted);margin-top:4px;line-height:1.5;}
+    .trkfoto{margin-top:7px;padding:7px 9px;background:#fff;border:1px solid #e9d5ff;border-radius:7px;}
+    .fbtns{display:flex;gap:8px;flex-wrap:wrap;}
+    .fbtn{display:inline-block;font-size:12.5px;font-weight:700;text-decoration:none;padding:6px 11px;
+      border-radius:8px;border:1px solid #e9d5ff;color:#6b21a8;background:#faf5ff;}
+    .fbtn.ok{background:#e7f6ee;border-color:#b7e4c7;color:#0b6b3a;}
+    .fbtn:hover{filter:brightness(.97);}
+    .tag.b{background:#fdeaea;color:#9a1420;}
+    .tag.s{background:#e7f6ee;color:#0b6b3a;}
+    .tag.pod{background:#e7f6ee;color:#0b6b3a;}
+    .tag.pic{background:#f3e8ff;color:#6b21a8;}
+    .tag.cod{background:#fff0d6;color:#8a5a00;font-weight:700;}
+    .tag.noncod{background:#eef2f7;color:#6b7280;font-weight:700;}
+    .tag.flag{background:#fff1eb;color:var(--warn);font-weight:700;}
+
+    /* ---------- MODAL ---------- */
+    .ov{position:fixed;inset:0;background:rgba(20,20,25,.55);display:none;z-index:50;overflow:auto;}
+    .ov.show{display:block;}
+    .modal{max-width:640px;margin:24px auto;background:#fff;border-radius:16px;overflow:hidden;
+           display:flex;flex-direction:column;max-height:calc(100vh - 48px);}
+    .mhead{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--line);padding:14px 18px;
+           display:flex;justify-content:space-between;align-items:flex-start;gap:10px;z-index:2;}
+    .mhead h2{margin:0;font-size:17px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+    .close{background:none;border:0;font-size:26px;cursor:pointer;color:var(--muted);line-height:1;padding:0 4px;}
+    .mbody{padding:16px 18px;overflow-y:auto;flex:1;}
+    .mfoot{position:sticky;bottom:0;background:#fff;border-top:1px solid var(--line);padding:12px 18px;z-index:2;}
+    .mfoot button{width:100%;padding:13px;font-size:14.5px;}
+
+    .info{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;font-size:12.5px;background:#fafbfc;
+          border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px;}
+    .info div span{color:var(--muted);display:block;font-size:11px;margin-bottom:1px;}
+    .moneybox{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px;margin-bottom:10px;}
+    .mb{background:#fafbfc;border:1px solid var(--line);border-radius:10px;padding:9px 11px;}
+    .mb span{display:block;font-size:11px;color:var(--muted);}
+    .mb b{font-size:15px;}
+    .mb.prod b{color:var(--ok);}
+
+    /* langkah 1-2-3 */
+    .step{border:1px solid var(--line);border-radius:12px;padding:13px 14px;margin-bottom:11px;background:#fff;}
+    .step.on{border-color:var(--jt);box-shadow:0 0 0 3px rgba(158,27,27,.06);}
+    .steptitle{display:flex;align-items:center;gap:9px;margin-bottom:3px;}
+    .num{width:23px;height:23px;border-radius:50%;background:var(--jt);color:#fff;font-size:12.5px;font-weight:700;
+         display:flex;align-items:center;justify-content:center;flex:0 0 auto;}
+    .steptitle b{font-size:13.5px;}
+    .hint{font-size:11.5px;color:var(--muted);margin:0 0 9px 32px;}
+    .step select{margin-left:0;}
+    .alertbox{display:none;margin-top:10px;background:#fff1eb;border:1px solid #f7c9b3;color:#8a3a12;
+              border-radius:9px;padding:10px 12px;font-size:12.5px;line-height:1.5;}
+    .alertbox.show{display:block;}
+    .alertbox b{color:var(--warn);}
+
+    .sec{font-size:13px;font-weight:700;margin:16px 0 4px;}
+    .secsub{font-size:11.5px;color:var(--muted);margin-bottom:8px;}
+    .wa{display:inline-block;background:#25D366;color:#fff;padding:9px 14px;border-radius:9px;font-size:13px;
+        font-weight:600;text-decoration:none;margin-bottom:4px;}
+    .thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+    .th{position:relative;width:82px;height:82px;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:#f1f2f4;}
+    .th img{width:100%;height:100%;object-fit:cover;cursor:zoom-in;display:block;}
+    .th .del{position:absolute;top:2px;right:2px;background:rgba(0,0,0,.6);color:#fff;border:0;border-radius:50%;
+             width:21px;height:21px;font-size:12px;cursor:pointer;line-height:1;}
+    .empty{font-size:12.5px;color:var(--muted);margin-top:8px;}
+    .pastezone{border:2px dashed #c7b6e6;border-radius:11px;background:#faf8ff;padding:16px;text-align:center;
+      cursor:text;transition:.12s;outline:none;}
+    .pastezone:focus,.pastezone.hot{border-color:var(--jt);background:#fff5f5;}
+    .pastezone b{display:block;font-size:14px;color:var(--jt);margin-bottom:3px;}
+    .pastezone span{font-size:12px;color:var(--muted);}
+    .pastezone kbd{background:#fff;border:1px solid var(--line);border-radius:4px;padding:0 5px;font-size:11px;}
+    .th.pend{border-color:#c7b6e6;} .th .badge2{position:absolute;left:2px;bottom:2px;background:rgba(107,33,168,.85);
+      color:#fff;font-size:9px;padding:1px 5px;border-radius:6px;}
+    .msg{font-size:12.5px;margin-top:10px;padding:10px 12px;border-radius:9px;display:none;}
+    .msg.ok{display:block;background:#e7f6ee;color:#0b6b3a;border:1px solid #b7e4c9;}
+    .msg.err{display:block;background:#fdeaea;color:#9a1420;border:1px solid #f4c2c5;}
+    .msg.info{display:block;background:#eef2f7;color:#334;border:1px solid #d7dee7;}
+
+    .lb{position:fixed;inset:0;background:rgba(0,0,0,.9);display:none;z-index:80;align-items:center;justify-content:center;padding:20px;}
+    .lb.show{display:flex;flex-direction:column;}
+    .lb img{max-width:96%;max-height:80%;border-radius:8px;}
+    .lb .acts{margin-top:14px;display:flex;gap:10px;}
+    .lb a,.lb button{background:#fff;color:var(--ink);border:0;border-radius:8px;padding:9px 15px;font-size:13px;
+                     font-weight:600;cursor:pointer;text-decoration:none;}
+
+    .busy{position:fixed;inset:0;background:rgba(245,246,248,.66);display:none;z-index:99;align-items:center;justify-content:center;}
+    .busy.show{display:flex;}
+    .busybox{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 22px;display:flex;
+             align-items:center;gap:11px;font-size:13.5px;font-weight:600;box-shadow:0 6px 24px rgba(0,0,0,.10);}
+    .sp{width:17px;height:17px;border:2.6px solid var(--jt);border-top-color:transparent;border-radius:50%;
+        display:inline-block;animation:sp .7s linear infinite;}
+    @keyframes sp{to{transform:rotate(360deg);}}
+
+    .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:11px;margin-bottom:12px;}
+    .kpi{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;}
+    .kpi span{font-size:11.5px;color:var(--muted);display:block;}
+    .kpi b{display:block;font-size:21px;margin-top:2px;line-height:1.2;}
+    .kpi i{display:block;font-size:11px;color:var(--muted);font-style:normal;margin-top:2px;}
+    .kpi.warn b{color:var(--jt);} .kpi.good b{color:var(--ok);} .kpi.alert b{color:var(--warn);}
+    .kpi.blue b{color:var(--blue);}
+    .charts{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+    .chartbox{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px;}
+    .chartbox h3{font-size:13px;margin:0 0 8px;}
+
+    .insight{background:#fffaf0;border:1px solid #f0e0c0;border-radius:12px;padding:13px 15px;margin-bottom:12px;}
+    .insight h4{margin:0 0 7px;font-size:13px;color:#8a5a00;}
+    .insight ul{margin:0;padding-left:18px;}
+    .insight li{font-size:12.5px;line-height:1.65;color:#4a3a1a;}
+    .insight li b{color:#8a3a12;}
+
+    .valuebox{display:grid;grid-template-columns:1fr 1fr;gap:11px;}
+    .vb{border:1px solid var(--line);border-radius:10px;padding:12px 14px;}
+    .vb span{font-size:11.5px;color:var(--muted);display:block;}
+    .vb b{display:block;font-size:20px;margin-top:2px;}
+    .vb i{display:block;font-size:11px;color:var(--muted);font-style:normal;margin-top:3px;}
+    .vb.good{background:#f2fbf6;border-color:#c9ead8;} .vb.good b{color:var(--ok);}
+    .vb.bad{background:#fdf3f3;border-color:#f2cfcf;} .vb.bad b{color:var(--jt);}
+
+    .rtbl{width:100%;border-collapse:collapse;font-size:12.5px;min-width:560px;}
+    .rtbl th,.rtbl td{padding:8px 9px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap;}
+    .rtbl th:first-child,.rtbl td:first-child{text-align:left;}
+    .rtbl th{background:#fafbfc;font-size:11.5px;color:var(--muted);font-weight:600;}
+    .rtbl td b{font-weight:700;}
+    .bar{height:6px;border-radius:4px;background:#eef2f7;overflow:hidden;margin-top:3px;min-width:60px;}
+    .bar i{display:block;height:100%;background:var(--ok);}
+
+    @media(max-width:800px){
+      .filters,.filters.super{grid-template-columns:1fr;}
+      .charts,.info,.moneybox{grid-template-columns:1fr;}
+      .kpis{grid-template-columns:repeat(2,1fr);}
+      .moneybox{grid-template-columns:1fr 1fr 1fr;}
+      .modal{margin:0;border-radius:0;max-height:100vh;min-height:100vh;max-width:100%;}
+      .ov{padding:0;}
+    }
+  </style>
+</head>
+<body>
+  <!-- muncul otomatis saat ada deployment versi baru -->
+  <div id="verBar" class="verbar">
+    <span>🔄 <b>Versi baru tersedia</b> — halaman ini masih memakai versi lama.
+      <i id="verInfo"></i></span>
+    <span>
+      <button class="verbtn" onclick="reloadApp()">Muat ulang sekarang</button>
+      <button class="verx" onclick="tundaVersi()" title="Tunda 10 menit">✕</button>
+    </span>
+  </div>
+
+  <div class="wrap">
+    <header>
+      <div class="brand"><div class="logo">J&amp;T</div><h1>CS Undelivered — Followup</h1></div>
+      <div class="who" id="who">memuat…</div>
+    </header>
+
+    <div class="tabs" id="tabs"></div>
+    <div class="msg" id="msgTop"></div>
+
+    <div id="viewWork">
+      <div class="filters" id="filterBar">
+        <div><label class="fld">Cari (no. resi / no. HP / nama penerima / provinsi)</label>
+          <input class="txt" id="fQ" placeholder="ketik lalu Enter…"></div>
+        <div><label class="fld">Label Tracking J&amp;T</label><select class="sel" id="fLab"></select></div>
+        <div id="picWrap" style="display:none;"><label class="fld">CS (PIC)</label><select class="sel" id="fPic"></select></div>
+        <div><button class="primary" style="width:100%" onclick="PAGE=1;loadWork()">Terapkan</button></div>
+      </div>
+
+      <!-- sub-tab per Status Followup (dengan jumlah resi) -->
+      <div class="subtabs" id="subtabs"></div>
+
+      <div class="worklayout">
+        <!-- sidebar Kategori Masalah dari hasil tracking J&T -->
+        <aside class="katbar" id="katSidebar"></aside>
+        <div class="workmain">
+          <div class="toolbar">
+            <div class="count" id="cnt"></div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <button class="ghost" onclick="bukaExport()">⤓ Export Excel</button>
+              <div class="pgsize"><span>Tampilkan</span><select id="fSize" onchange="PAGE=1;loadWork()"></select><span>per halaman</span></div>
+            </div>
+          </div>
+          <div id="list"></div>
+          <div class="pager" id="pager"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="viewRep" style="display:none;">
+      <div class="insight" id="insight"></div>
+
+      <div class="kpis">
+        <div class="kpi"><span id="rTotLbl">Resi aktif ditangani</span><b id="rTotal">…</b>
+          <i id="rSplit">—</i></div>
+        <div class="kpi warn"><span>Belum difollowup</span><b id="rBelum">…</b><i id="rBelumPct">—</i></div>
+        <div class="kpi good"><span>Selesai</span><b id="rSelesai">…</b><i id="rSelesaiPct">—</i></div>
+        <div class="kpi blue"><span>Followup hari ini</span><b id="rToday">…</b><i id="rAvg">—</i></div>
+      </div>
+
+      <div class="kpis">
+        <div class="kpi"><span>Nilai COD tertahan</span><b id="rCod">…</b><i>total paket bermasalah</i></div>
+        <div class="kpi"><span>Nilai produk berisiko</span><b id="rProd">…</b><i>COD − ongkir</i></div>
+        <div class="kpi alert"><span>⚠ Klaim kurir tidak valid</span><b id="rInv">…</b><i id="rInvPct">—</i></div>
+        <div class="kpi good"><span>Bukti POD terkumpul</span><b id="rPod">…</b><i id="rPodPct">—</i></div>
+      </div>
+
+      <div class="chartbox" style="margin-bottom:12px;">
+        <h3>Produktivitas Followup Harian <small id="dSrc" style="font-weight:400;color:#6b7280;"></small></h3>
+        <canvas id="cDaily" height="110"></canvas>
+      </div>
+
+      <div class="charts">
+        <div class="chartbox"><h3>Status Followup</h3><canvas id="cFu" height="180"></canvas></div>
+        <div class="chartbox"><h3>Umur Resi yang Belum Difollowup</h3><canvas id="cAge" height="180"></canvas></div>
+      </div>
+
+      <div class="charts" style="margin-top:12px;">
+        <div class="chartbox"><h3>Klaim Ekspedisi / Kurir</h3><canvas id="cKat" height="200"></canvas></div>
+        <div class="chartbox"><h3>Hasil POD Pembanding (kata konsumen)</h3><canvas id="cHasil" height="200"></canvas></div>
+      </div>
+
+      <div class="chartbox" style="margin-top:12px;">
+        <h3>Dampak ke Nilai Produk</h3>
+        <div class="valuebox">
+          <div class="vb good"><span>Berpeluang selamat</span><b id="rSelamat">—</b>
+            <i>konsumen siap terima / bantah retur / perbaiki alamat</i></div>
+          <div class="vb bad"><span>Kemungkinan hilang</span><b id="rHilang">—</b>
+            <i>retur/cancel dikonfirmasi konsumen</i></div>
+        </div>
+      </div>
+
+      <div class="chartbox" style="margin-top:12px;">
+        <h3 id="tblTitle">Performa per CS</h3>
+        <div style="overflow-x:auto;"><table class="rtbl" id="csTable"></table></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL -->
+  <div class="ov" id="ov">
+    <div class="modal">
+      <div class="mhead">
+        <div><h2 id="dWb">—</h2><div class="sub" id="dSub"></div></div>
+        <button class="close" onclick="closeModal()">×</button>
+      </div>
+
+      <div class="mbody">
+        <div class="moneybox">
+          <div class="mb"><span>Nilai COD</span><b id="dCod">—</b></div>
+          <div class="mb"><span>Ongkir</span><b id="dOng">—</b></div>
+          <div class="mb prod"><span>Nilai Produk</span><b id="dProd">—</b></div>
+        </div>
+        <div class="info" id="dInfo"></div>
+        <div class="trkbox2" id="dTrk" style="display:none;"></div>
+        <a class="wa" id="dWa" href="#" target="_blank" rel="noopener">💬 Chat WhatsApp penerima</a>
+
+        <div class="sec">Template Pesan</div>
+        <div class="secsub">Pilih template, lalu salin dan kirim ke konsumen.</div>
+        <select class="sel" id="dTpl" onchange="fillTpl()"></select>
+        <textarea class="ta" id="dPesan" style="margin-top:8px;"></textarea>
+        <button class="ghost" style="margin-top:6px;" onclick="copyPesan()">📋 Salin pesan</button>
+
+        <div class="sec" style="margin-top:20px;">Isi Hasil Followup</div>
+        <div class="secsub">Lengkapi 3 langkah di bawah ini.</div>
+
+        <div class="step" id="s1">
+          <div class="steptitle"><div class="num">1</div><b>Kategori Masalah</b></div>
+          <div class="hint">Apa yang <u>diklaim kurir / dicatat ekspedisi</u>?</div>
+          <select class="sel" id="dKat" onchange="checkConflict()"></select>
+        </div>
+
+        <div class="step" id="s2">
+          <div class="steptitle"><div class="num">2</div><b>Status Followup</b></div>
+          <div class="hint">Sejauh mana <u>Anda</u> menghubungi konsumen?</div>
+          <select class="sel" id="dFu"></select>
+        </div>
+
+        <div class="step" id="s3">
+          <div class="steptitle"><div class="num">3</div><b>Hasil POD Pembanding</b></div>
+          <div class="hint">Apa kata <u>konsumen</u> setelah Anda hubungi?</div>
+          <select class="sel" id="dHasil" onchange="checkConflict()"></select>
+          <div class="alertbox" id="conflict">
+            <b>⚠ Klaim kurir tidak sesuai pengakuan konsumen.</b><br>
+            Ini indikasi laporan kurir tidak valid. Mohon <b>lampirkan foto bukti POD pembanding</b> di bawah
+            (screenshot chat / konfirmasi konsumen) sebagai bahan komplain ke ekspedisi.
+          </div>
+        </div>
+
+        <label class="fld" style="margin-top:4px;">Catatan CS</label>
+        <textarea class="ta" id="dCatatan" placeholder="Ringkas hasil komunikasi dengan konsumen…"></textarea>
+
+        <div class="sec" style="margin-top:18px;">Foto POD Pembanding</div>
+        <div class="secsub">Bukti dari sisi CS (screenshot chat/konfirmasi konsumen). Boleh lebih dari satu.</div>
+
+        <!-- Area tempel: staff bisa screenshot/snip chat WhatsApp lalu Ctrl+V di sini -->
+        <div id="pasteZone" class="pastezone" tabindex="0"
+             onclick="this.focus()" onpaste="onPaste(event)">
+          <b>📋 Tempel gambar di sini</b>
+          <span>Klik area ini lalu tekan <kbd>Ctrl</kbd>+<kbd>V</kbd> — hasil screenshot/snipping tool WhatsApp langsung masuk.</span>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">
+          <label class="ghost" style="cursor:pointer;margin:0;">📁 Pilih file
+            <input type="file" id="dFile" accept="image/*" capture="environment" multiple
+                   style="display:none;" onchange="onPickFiles(this.files)"></label>
+          <span class="secsub" style="margin:0;">atau tempel di atas.</span>
+        </div>
+
+        <!-- antrean foto yang siap dikirim (belum tersimpan) -->
+        <div class="thumbs" id="dPending"></div>
+        <div style="margin-top:8px;">
+          <button class="primary" id="btnUp" onclick="upPods()" disabled>⬆ Simpan foto ke Drive</button>
+        </div>
+
+        <div class="secsub" style="margin-top:14px;">Sudah tersimpan:</div>
+        <div class="thumbs" id="dThumbs"></div>
+        <div class="empty" id="dEmpty"></div>
+
+        <div class="msg" id="msgD"></div>
+      </div>
+
+      <div class="mfoot">
+        <button class="primary" id="btnSave" onclick="saveFu()">✓ Simpan Followup</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL EXPORT EXCEL -->
+  <div class="ov" id="ovExport">
+    <div class="modal" style="max-width:520px;">
+      <div class="mhead">
+        <div><h2>Export Excel</h2><div class="sub">Pilih filter, lalu file langsung terunduh</div></div>
+        <button class="close" onclick="tutupExport()">×</button>
+      </div>
+      <div class="mbody">
+        <p class="secsub" style="margin-top:0;">Kosongkan filter untuk mengekspor <b>semua</b> resi wilayah Anda.
+          Kolom mencakup data konsumen, tracking J&amp;T, hingga progres followup.</p>
+        <label class="fld">Label tracking J&amp;T</label>
+        <select class="sel" id="xLabel"></select>
+        <label class="fld" style="margin-top:10px;">Status followup</label>
+        <select class="sel" id="xFu"></select>
+        <label class="fld" style="margin-top:10px;">Kategori masalah</label>
+        <select class="sel" id="xKat"></select>
+        <div id="xProvWrap" style="display:none;">
+          <label class="fld" style="margin-top:10px;">Provinsi</label>
+          <select class="sel" id="xProv"></select>
+        </div>
+        <div class="msg" id="msgExport"></div>
+      </div>
+      <div class="mfoot">
+        <button class="primary" id="btnExport" onclick="prosesExport()">⤓ Proses &amp; Download</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="lb" id="lb" onclick="if(event.target===this)closeLb()">
+    <img id="lbImg" src="">
+    <div class="acts"><a id="lbOpen" href="#" target="_blank" rel="noopener">Buka di Drive</a>
+      <button onclick="closeLb()">Tutup</button></div>
+  </div>
+
+  <div class="busy" id="busy"><div class="busybox"><span class="sp"></span><span id="busyTxt">Memproses…</span></div></div>
+
+<script>
+  var ME=null, ROWS=[], CUR=null, TAB='Sedang Diantar', BUSY=false, PAGE=1, LASTCOUNTS={};
+  var SUBFU='', SUBKAT='';   // sub-tab status followup & sidebar kategori terpilih ('' = semua)
+  var chFu, chKat, chHasil, chPic;
+
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  function show(id,cls,html){var e=document.getElementById(id);e.className='msg '+cls;e.innerHTML=html;}
+  function hide(id){document.getElementById(id).className='msg';}
+  function n(v){ if(v===''||v===null||v===undefined) return '—';
+    var x=Number(v); if(isNaN(x)) return String(v);
+    return x.toLocaleString('id-ID',{maximumFractionDigits:0}); }
+  function rp(v){ return v===''||v===null||v===undefined ? '—' : 'Rp '+n(v); }
+
+  function busyOn(t){ BUSY=true; document.getElementById('busyTxt').textContent=t||'Memproses…';
+    document.getElementById('busy').classList.add('show'); setBtns(true); }
+  function busyOff(){ BUSY=false; document.getElementById('busy').classList.remove('show'); setBtns(false); }
+  function setBtns(d){ ['btnSave','btnUp'].forEach(function(id){var b=document.getElementById(id); if(b) b.disabled=d;}); }
+  function guard(){ return !BUSY; }
+
+  // ================= DETEKSI DEPLOYMENT BARU =================
+  // Halaman yang sedang dibuka tidak tahu kalau kodenya sudah diganti. Versi yang
+  // dipegang halaman ini dibandingkan berkala dengan versi di server; kalau beda
+  // -> banner muncul dan user tinggal klik untuk memuat versi terbaru.
+  var VERSI_AWAL=null, VERSI_TUNDA=0;
+  function cekVersi(){
+    if(!VERSI_AWAL || Date.now()<VERSI_TUNDA) return;
+    google.script.run.withSuccessHandler(function(v){
+      if(!v || v===VERSI_AWAL) return;
+      document.getElementById('verInfo').textContent='('+VERSI_AWAL+' → '+v+')';
+      document.getElementById('verBar').classList.add('show');
+    }).withFailureHandler(function(){}).getVersi();
+  }
+  function tundaVersi(){
+    VERSI_TUNDA=Date.now()+10*60*1000;
+    document.getElementById('verBar').classList.remove('show');
+  }
+  /** Halaman Apps Script ada di dalam iframe — yang dipindah harus jendela ATAS,
+      dan browser hanya mengizinkannya bila dipicu klik user (makanya ini tombol). */
+  function reloadApp(){
+    var b=document.querySelector('.verbtn'); if(b){ b.disabled=true; b.textContent='Memuat…'; }
+    google.script.run.withSuccessHandler(function(u){
+      var url=(u||'')+(u&&u.indexOf('?')<0?'?':'&')+'v='+Date.now();
+      try{ if(u){ window.top.location.href=url; return; } }catch(e){}
+      window.location.reload();
+    }).withFailureHandler(function(){ window.location.reload(); }).getWebAppUrl();
+  }
+  setInterval(cekVersi, 90000);
+  document.addEventListener('visibilitychange', function(){ if(!document.hidden) cekVersi(); });
+
+  // ================= LOADER PROGRESS PER SECTION =================
+  var LOADERS={};
+  function loadOn(id, teks){
+    var el=document.getElementById(id); if(!el) return;
+    el.innerHTML='<div class="load"><span class="spin g"></span> '+(teks||'Memuat data…')+
+      ' <b class="lp">0%</b><div class="track"><div class="bar"></div></div></div>';
+    if(LOADERS[id]) clearInterval(LOADERS[id].t);
+    var st={v:0,t:null};
+    st.t=setInterval(function(){
+      st.v += Math.max(0.8,(92-st.v)*0.08);
+      if(st.v>92) st.v=92;
+      var p=Math.round(st.v);
+      var lp=el.querySelector('.lp'), bar=el.querySelector('.bar');
+      if(!lp){ clearInterval(st.t); return; }        // sudah diganti isi asli
+      lp.textContent=p+'%'; if(bar) bar.style.width=p+'%';
+    },110);
+    LOADERS[id]=st;
+  }
+  function loadOff(id){ if(LOADERS[id]){ clearInterval(LOADERS[id].t); delete LOADERS[id]; } }
+  function loadErr(id,pesan){
+    loadOff(id);
+    var el=document.getElementById(id);
+    if(el) el.innerHTML='<div class="load" style="color:#9a1420;">✕ '+esc(pesan||'Gagal memuat.')+'</div>';
+  }
+
+  // ---- init ----
+  busyOn('Memuat data Anda…');
+  google.script.run.withSuccessHandler(function(me){
+    ME=me; busyOff();
+    VERSI_AWAL = me.versi || null;
+    document.getElementById('who').innerHTML='<b>'+esc(me.nama)+'</b>'+(me.isSuper?' · superadmin':'')+
+      '<br>'+(me.isSuper?'Akses semua wilayah &amp; semua CS'
+        :(me.provinces.length?esc(me.provinces.join(', ')):'<span style="color:#9E1B1B;">Belum ada wilayah</span>'))+
+      (me.versi?'<br><span class="tag" style="font-size:10.5px;">'+esc(me.versi)+'</span>':'');
+    var o=function(a,ph){return a.map(function(x){return '<option value="'+esc(x)+'">'+esc(x||ph)+'</option>';}).join('');};
+    document.getElementById('dKat').innerHTML=o([''].concat(me.kategori),'— pilih klaim ekspedisi —');
+    document.getElementById('dFu').innerHTML=o(me.statusFollowup,'');
+    document.getElementById('dHasil').innerHTML=o(me.hasilPOD,'— belum ada hasil —');
+    document.getElementById('dTpl').innerHTML='<option value="-1">— pilih template —</option>'+
+      me.templates.map(function(t,i){return '<option value="'+i+'">'+esc(t.judul+' ('+t.kategori+')')+'</option>';}).join('');
+    document.getElementById('fSize').innerHTML=(me.pageSizes||[25,50,100,200]).map(function(s){
+      return '<option value="'+s+'"'+(s===(me.defaultPageSize||25)?' selected':'')+'>'+s+'</option>';}).join('');
+    if(me.isSuper){
+      document.getElementById('filterBar').classList.add('super');
+      document.getElementById('picWrap').style.display='block';
+      document.getElementById('fPic').innerHTML=o([''].concat(me.csList),'Semua CS');
+      document.getElementById('rTotLbl').textContent='Resi aktif (semua wilayah)';
+    }
+    renderTabs({}); loadWork();
+  }).withFailureHandler(function(e){
+    busyOff(); show('msgTop','err','✕ '+(e&&e.message?e.message:'Gagal memuat.'));
+    document.getElementById('who').textContent='';
+  }).getMe();
+
+  document.getElementById('fQ').addEventListener('keydown',function(e){ if(e.key==='Enter'){PAGE=1;loadWork();} });
+
+  // ---- tabs ----
+  // Hanya "Sedang Diantar" — paket yang sudah retur tidak lagi bisa difollowup,
+  // jadi tabnya dilepas supaya worklist CS tidak terisi pekerjaan yang sudah lewat.
+  var TABS=[{k:'Sedang Diantar',l:'Sedang Diantar'},{k:'__rep',l:'Report'}];
+  function renderTabs(c){
+    document.getElementById('tabs').innerHTML=TABS.map(function(t){
+      var v=t.k==='__rep'?null:(t.k===''?c['Semua']:c[t.k]);
+      return '<button class="'+(TAB===t.k?'active':'')+'" onclick="goTab(\''+t.k+'\')">'+esc(t.l)+
+        (v===undefined||v===null?'':'<span class="badge">'+n(v)+'</span>')+'</button>';}).join('');
+  }
+  function goTab(k){
+    TAB=k; PAGE=1;
+    var rep=(k==='__rep');
+    document.getElementById('viewWork').style.display=rep?'none':'block';
+    document.getElementById('viewRep').style.display=rep?'block':'none';
+    if(rep){ renderTabs(LASTCOUNTS); loadReport(); } else loadWork();
+  }
+
+  /** Opsi label diisi dari data NYATA di wilayah CS ini — bukan daftar tetap.
+      Kalau J&T menambah label baru, otomatis muncul tanpa ubah kode. */
+  function isiDropdownLabel(opts){
+    var el=document.getElementById('fLab'); if(!el) return;
+    var kini=el.value;
+    var html='<option value="">Semua label</option>';
+    if(opts.length) html+=opts.map(function(x){
+      return '<option value="'+esc(x)+'">'+esc(x)+'</option>';}).join('');
+    html+='<option value="__kosong">— belum pernah dicek —</option>';
+    el.innerHTML=html;
+    el.value=kini;                       // jangan reset pilihan user saat daftar disegarkan
+    if(el.value!==kini) el.value='';     // kecuali label itu memang sudah tidak ada
+  }
+
+  // ---- worklist ----
+  function loadWork(){
+    loadOn('list','Memuat daftar resi…');
+    document.getElementById('pager').innerHTML='';
+    var f={ statusEks:(TAB==='__rep'?'':TAB), statusFu:SUBFU, kategori:SUBKAT,
+            label:document.getElementById('fLab').value,
+            pic:(ME&&ME.isSuper)?document.getElementById('fPic').value:'',
+            q:document.getElementById('fQ').value,
+            page:PAGE, pageSize:parseInt(document.getElementById('fSize').value,10)||25 };
+    google.script.run.withSuccessHandler(function(d){ loadOff('list'); renderWork(d); })
+      .withFailureHandler(function(e){
+        var p=(e&&e.message?e.message:'Gagal memuat.');
+        loadErr('list',p); show('msgTop','err','✕ '+p);
+      }).getWorklist(f);
+  }
+  // Sub-tab status followup dengan jumlah resi tiap status.
+  function renderSubtabs(d){
+    var fu=d.countsFu||{}, sts=d.statusFollowup||[];
+    var total=sts.reduce(function(a,s){return a+(fu[s]||0);},0);
+    var btn=function(val,label,cnt){
+      return '<button class="'+(SUBFU===val?'active':'')+'" onclick="pickSubfu(\''+
+        val.replace(/'/g,"\\'")+'\')">'+esc(label)+'<span class="cnt">'+n(cnt)+'</span></button>';
+    };
+    var html=btn('','Semua',total);
+    sts.forEach(function(s){ html+=btn(s,s,fu[s]||0); });
+    document.getElementById('subtabs').innerHTML=html;
+  }
+  function pickSubfu(v){ SUBFU=v; PAGE=1; loadWork(); }
+
+  // Sidebar kategori masalah (dari hasil tracking J&T) dengan jumlah resi.
+  function renderKatbar(d){
+    var opts=d.kategoriOptions||[];
+    var total=opts.reduce(function(a,o){return a+o.n;},0);
+    var row=function(val,label,cnt){
+      return '<button class="'+(SUBKAT===val?'active':'')+'" onclick="pickKat(\''+
+        String(val).replace(/'/g,"\\'")+'\')"><span class="kn">'+esc(label)+
+        '</span><span class="kc">'+n(cnt)+'</span></button>';
+    };
+    var html='<div class="kathead">Kategori Masalah (J&amp;T)</div>'+row('','Semua kategori',total);
+    opts.forEach(function(o){ html+=row(o.value,o.kategori,o.n); });
+    document.getElementById('katSidebar').innerHTML=html;
+  }
+  function pickKat(v){ SUBKAT=v; PAGE=1; loadWork(); }
+
+  function renderWork(d){
+    hide('msgTop'); ROWS=d.rows; LASTCOUNTS=d.counts||{}; PAGE=d.page||1; renderTabs(LASTCOUNTS);
+    isiDropdownLabel(d.labelOptions||[]);
+    renderSubtabs(d); renderKatbar(d);
+    document.getElementById('cnt').textContent = d.total
+      ? ('Menampilkan '+n(d.from)+'–'+n(d.to)+' dari '+n(d.total)+' resi') : 'Tidak ada resi.';
+    if(!d.rows.length){
+      document.getElementById('list').innerHTML='<div class="item" style="cursor:default;">Tidak ada resi yang cocok.</div>';
+      return;
+    }
+    document.getElementById('list').innerHTML=d.rows.map(function(r,i){
+      var sc='diantar';   // satu-satunya status yang dimuat sistem
+      var fc=r.followup==='Belum Followup'?'b':(r.followup==='Selesai'?'s':'');
+      return '<div class="item'+(r.flagTidakValid?' alert':'')+'" onclick="openDetail('+i+')">'+
+        '<div class="top"><div style="min-width:220px;">'+
+          '<div class="wb">'+esc(r.key)+' · '+esc(r['Penerima'])+'</div>'+
+          '<div class="sub">'+esc(r['Kota Penerima'])+', '+esc(r.provinsi)+' · '+esc(r['Nama Barang'])+'</div>'+
+          '<div class="money"><span>COD '+rp(r.nilaiCOD)+'</span><span>Ongkir '+rp(r.totalBiaya)+'</span>'+
+            '<span class="pos">Nilai Produk '+rp(r.nilaiProduk)+'</span></div>'+
+          // catatan terakhir dari sistem J&T — apa yang benar-benar terjadi di lapangan
+          (r.trkKet?'<div class="sub">🚚 '+esc(r.trkKet)+
+            (r.trkWaktu?' <span style="opacity:.7;">· '+esc(r.trkWaktu)+'</span>':'')+
+            (r.trkPosisi?' <span style="opacity:.7;">· '+esc(r.trkPosisi)+'</span>':'')+'</div>':'')+
+          (r.hasil?'<div class="sub">🗣 '+esc(r.hasil)+'</div>':'')+
+        '</div>'+
+        '<div class="tags">'+
+          (r.flagTidakValid?'<span class="tag flag">⚠ Klaim kurir tidak valid</span>':'')+
+          '<span class="tag '+(r.isCod?'cod':'noncod')+'">'+(r.isCod?'COD':'Non-COD')+'</span>'+
+          '<span class="tag '+sc+'">'+esc(r.status)+'</span>'+
+          (r.trkLabel?'<span class="tag trk">🚚 '+esc(r.trkLabel)+'</span>':'')+
+          '<span class="tag '+fc+'">'+esc(r.followup)+'</span>'+
+          (r.pods&&r.pods.length?'<span class="tag pod">📷 '+r.pods.length+'</span>':'')+
+          (r['Kategori Masalah']?'<span class="tag">'+esc(r['Kategori Masalah'])+'</span>':'')+
+          ((ME&&ME.isSuper&&r['PIC CS'])?'<span class="tag pic">'+esc(r['PIC CS'])+'</span>':'')+
+        '</div></div></div>';
+    }).join('');
+    renderPager(d);
+  }
+  function renderPager(d){
+    if(d.totalPages<=1){ document.getElementById('pager').innerHTML=''; return; }
+    document.getElementById('pager').innerHTML=
+      '<button onclick="goPage(1)" '+(d.page<=1?'disabled':'')+'>« Awal</button>'+
+      '<button onclick="goPage('+(d.page-1)+')" '+(d.page<=1?'disabled':'')+'>‹ Sebelumnya</button>'+
+      '<span class="pg">Halaman <b>'+n(d.page)+'</b> dari '+n(d.totalPages)+'</span>'+
+      '<button onclick="goPage('+(d.page+1)+')" '+(d.page>=d.totalPages?'disabled':'')+'>Berikutnya ›</button>'+
+      '<button onclick="goPage('+d.totalPages+')" '+(d.page>=d.totalPages?'disabled':'')+'>Akhir »</button>';
+  }
+  function goPage(p){ if(BUSY) return; PAGE=p; loadWork(); window.scrollTo({top:0,behavior:'smooth'}); }
+
+  // ---- detail ----
+  function openDetail(i){
+    CUR=ROWS[i]; hide('msgD');
+    PENDING=[]; renderPending();          // bersihkan antrean foto dari resi sebelumnya
+    document.getElementById('dWb').innerHTML=esc(CUR.key)+
+      ' <span class="tag '+(CUR.isCod?'cod':'noncod')+'">'+(CUR.isCod?'COD':'Non-COD')+'</span>';
+    document.getElementById('dSub').textContent=CUR.status+' · '+CUR.provinsi+' · dikirim '+CUR.tanggal+
+      ((ME&&ME.isSuper&&CUR['PIC CS'])?' · PIC: '+CUR['PIC CS']:'');
+    document.getElementById('dCod').textContent=rp(CUR.nilaiCOD);
+    document.getElementById('dOng').textContent=rp(CUR.totalBiaya);
+    document.getElementById('dProd').textContent=rp(CUR.nilaiProduk);
+
+    var f=[['Penerima',CUR['Penerima']],['Telepon',CUR['Telepon Penerima']],
+           ['Kota / Kec.',CUR['Kota Penerima']+' / '+CUR['Kecamatan Penerima']],
+           ['Nama Barang',CUR['Nama Barang']],['Status TTD',CUR['Tanda TTD']],
+           ['Keterangan Ekspedisi',CUR['Keterangan']],
+           ['Alamat',CUR['Alamat Penerima']],
+           ['Update terakhir',(CUR['Timestamp Update']||'—')+(CUR['Diupdate Oleh']?' · '+CUR['Diupdate Oleh']:'')]];
+    document.getElementById('dInfo').innerHTML=f.map(function(x){
+      return '<div><span>'+esc(x[0])+'</span>'+esc(x[1]||'-')+'</div>';}).join('');
+
+    // Catatan terakhir dari sistem J&T — INI klaim kurirnya. CS perlu melihatnya
+    // sebelum menelepon, supaya bisa langsung mengonfrontasi klaim itu ke konsumen.
+    var tb=document.getElementById('dTrk');
+    if(CUR.trkLabel){
+      tb.style.display='block';
+      tb.innerHTML='<div class="trkhead">🚚 Catatan terakhir sistem J&amp;T</div>'+
+        '<div class="trkrow"><span class="tag trk">'+esc(CUR.trkLabel)+'</span>'+
+          (CUR.trkWaktu?'<span class="trkwkt">'+esc(CUR.trkWaktu)+'</span>':'')+
+          (CUR.trkPosisi?'<span class="trkwkt">· '+esc(CUR.trkPosisi)+'</span>':'')+'</div>'+
+        (CUR.trkKet?'<div class="trkket">'+esc(CUR.trkKet)+'</div>':'')+
+        (CUR.trkAlasan?'<div class="trkals">Klaim ekspedisi: <b>'+esc(CUR.trkAlasan)+'</b>'+
+          '<div class="trknote">Tanyakan langsung ke konsumen apakah ini benar. Kalau dibantah, '+
+          'catat di <b>Hasil POD Pembanding</b> — itulah bukti sengketa Anda.</div></div>':'')+
+        (CUR.trkKurir?'<div class="trkwkt">Kurir: '+esc(CUR.trkKurir)+'</div>':'')+
+        fotoKurirHtml(CUR.trkFotoDrive, CUR.trkFoto);
+    } else {
+      tb.style.display='block';
+      tb.innerHTML='<div class="trkhead" style="opacity:.7;">🚚 Catatan J&amp;T belum diambil</div>'+
+        '<div class="trkwkt">Supervisor perlu menjalankan "Tracking J&amp;T" di Sistem 1.</div>';
+    }
+
+    var tel=String(CUR['Telepon Penerima']||'').replace(/[^0-9]/g,'');
+    var wa=document.getElementById('dWa');
+    if(tel){ wa.href='https://wa.me/'+tel; wa.style.display='inline-block'; } else wa.style.display='none';
+
+    document.getElementById('dKat').value=CUR['Kategori Masalah']||'';
+    document.getElementById('dFu').value=CUR.followup||'Belum Followup';
+    document.getElementById('dHasil').value=CUR.hasil||'';
+    document.getElementById('dCatatan').value=CUR['Catatan CS']||'';
+    document.getElementById('dTpl').value='-1'; document.getElementById('dPesan').value='';
+    document.getElementById('dFile').value='';
+    renderThumbs(CUR.pods||[]);
+    checkConflict();
+    document.getElementById('ov').classList.add('show');
+    document.querySelector('.mbody').scrollTop=0;
+  }
+  function closeModal(){ if(BUSY) return; document.getElementById('ov').classList.remove('show'); }
+  document.getElementById('ov').addEventListener('click',function(e){ if(e.target===this) closeModal(); });
+
+  // ================= EXPORT EXCEL =================
+  var EXP_OPT=null;
+  function isiSel(id, arr, labelSemua, adaKosong){
+    var h='<option value="">'+labelSemua+'</option>';
+    if(adaKosong) h+='<option value="__kosong">— belum pernah dicek —</option>';
+    h+=(arr||[]).map(function(x){return '<option value="'+esc(x)+'">'+esc(x)+'</option>';}).join('');
+    document.getElementById(id).innerHTML=h;
+  }
+  function bukaExport(){
+    document.getElementById('ovExport').classList.add('show');
+    hide('msgExport');
+    if(EXP_OPT) return;
+    ['xLabel','xFu','xKat','xProv'].forEach(function(id){
+      document.getElementById(id).innerHTML='<option>memuat…</option>'; });
+    google.script.run.withSuccessHandler(function(o){
+      EXP_OPT=o;
+      isiSel('xLabel', o.label,    'Semua label', true);
+      isiSel('xFu',    o.followup, 'Semua status followup', false);
+      isiSel('xKat',   o.kategori, 'Semua kategori', false);
+      isiSel('xProv',  o.provinsi, 'Semua provinsi', false);
+      // Filter provinsi hanya berguna kalau memang menangani >1 provinsi.
+      document.getElementById('xProvWrap').style.display =
+        (o.isSuper || (o.provinsi&&o.provinsi.length>1)) ? 'block' : 'none';
+    }).withFailureHandler(function(e){
+      show('msgExport','err','✕ '+(e&&e.message?e.message:'Gagal memuat opsi.'));
+    }).getExportOptions();
+  }
+  function tutupExport(){ document.getElementById('ovExport').classList.remove('show'); }
+  document.getElementById('ovExport').addEventListener('click',function(e){ if(e.target===this) tutupExport(); });
+  function prosesExport(){
+    var b=document.getElementById('btnExport'); b.disabled=true;
+    show('msgExport','info','<span class="sp"></span> Menyiapkan Excel… (beberapa detik)');
+    var f={ label:vExp('xLabel'), followup:vExp('xFu'), kategori:vExp('xKat'), provinsi:vExp('xProv') };
+    google.script.run.withSuccessHandler(function(r){
+      b.disabled=false;
+      var bin=atob(r.b64), arr=new Uint8Array(bin.length);
+      for(var i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+      var url=URL.createObjectURL(new Blob([arr],{type:r.mime||'application/octet-stream'}));
+      var a=document.createElement('a'); a.href=url; a.download=r.nama;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function(){URL.revokeObjectURL(url);},1500);
+      show('msgExport','ok','✔ '+n(r.jumlah)+' baris diexport ke '+esc(r.nama));
+    }).withFailureHandler(function(e){
+      b.disabled=false;
+      show('msgExport','err','✕ '+(e&&e.message?e.message:'Gagal export.'));
+    }).exportExcel(f);
+  }
+  function vExp(id){ return document.getElementById(id).value; }
+
+  /** Dua tautan foto kurir: Drive (permanen) + jmsfile (asli J&T, ~24 jam). */
+  function fotoKurirHtml(drive, jmsfile){
+    if(!drive && !jmsfile) return '';
+    var links='';
+    if(drive)   links+='<a href="'+esc(drive)+'" target="_blank" rel="noopener" class="fbtn ok">📷 Foto kurir (Drive)</a>';
+    if(jmsfile) links+='<a href="'+esc(jmsfile)+'" target="_blank" rel="noopener" class="fbtn">📷 Versi jmsfile</a>';
+    var note = drive
+      ? 'Versi Drive tersimpan permanen. Versi jmsfile asli dari J&amp;T tapi hanya berlaku ±24 jam.'
+      : 'Hanya versi jmsfile (asli J&amp;T, berlaku ±24 jam). Jalankan tracking lagi kalau link mati.';
+    return '<div class="trkfoto"><div class="fbtns">'+links+'</div>'+
+      '<div class="trknote">Foto yang diambil kurir saat mengaku gagal antar. Kalau isinya tidak '+
+      'sesuai klaim, itu bukti kuat Anda. '+note+'</div></div>';
+  }
+
+  /** Sorot langkah & tampilkan peringatan bila hasil konsumen membantah klaim kurir. */
+  function checkConflict(){
+    var kat=document.getElementById('dKat').value;
+    var hasil=document.getElementById('dHasil').value;
+    var bad=(ME&&ME.hasilKlaimTidakValid||[]).indexOf(hasil)>=0;
+    document.getElementById('conflict').className='alertbox'+(bad?' show':'');
+    document.getElementById('s1').className='step'+(kat?' on':'');
+    document.getElementById('s3').className='step'+(hasil?' on':'');
+  }
+
+  function fileId(u){ var m=String(u).match(/\/d\/([^\/\?]+)/); return m?m[1]:''; }
+  function renderThumbs(pods){
+    var el=document.getElementById('dThumbs'), em=document.getElementById('dEmpty');
+    if(!pods.length){ el.innerHTML=''; em.textContent='Belum ada foto POD pembanding.'; return; }
+    em.textContent='';
+    el.innerHTML=pods.map(function(u){
+      var id=fileId(u);
+      return '<div class="th"><img src="https://drive.google.com/thumbnail?id='+esc(id)+'&sz=w240" '+
+        'onclick="openLb(\''+esc(id)+'\',\''+esc(u)+'\')" alt="POD">'+
+        '<button class="del" title="Hapus" onclick="event.stopPropagation();delPod(\''+esc(u)+'\')">×</button></div>';
+    }).join('');
+  }
+  function openLb(id,url){
+    document.getElementById('lbImg').src='https://drive.google.com/thumbnail?id='+id+'&sz=w1600';
+    var o=document.getElementById('lbOpen'); o.href=url; o.style.display='';
+    document.getElementById('lb').classList.add('show');
+  }
+  function closeLb(){ document.getElementById('lb').classList.remove('show'); }
+  /** Lightbox untuk gambar yang belum tersimpan (data URL antrean tempel/pilih). */
+  function openLbSrc(src,url){
+    document.getElementById('lbImg').src=src;
+    var o=document.getElementById('lbOpen'); o.href=url||src; o.style.display=url?'':'none';
+    document.getElementById('lb').classList.add('show');
+  }
+
+  function fillTpl(){
+    var i=parseInt(document.getElementById('dTpl').value,10);
+    if(isNaN(i)||i<0||!CUR){ document.getElementById('dPesan').value=''; return; }
+    var t=ME.templates[i].isi;
+    var map={'{Penerima}':CUR['Penerima'],'{No. Waybill}':CUR.key,'{Nama Barang}':CUR['Nama Barang'],
+             '{Kota Penerima}':CUR['Kota Penerima'],'{Provinsi Penerima}':CUR.provinsi,
+             '{Nilai COD}':n(CUR.nilaiCOD),'{Status Ekspedisi}':CUR.status,
+             '{Nama CS}':(ME&&ME.nama)?ME.nama:''};
+    Object.keys(map).forEach(function(k){ t=t.split(k).join(map[k]||''); });
+    document.getElementById('dPesan').value=t;
+    var kat=ME.templates[i].kategori;
+    if(kat && ME.kategori.indexOf(kat)>=0){ document.getElementById('dKat').value=kat; checkConflict(); }
+  }
+  function copyPesan(){
+    var ta=document.getElementById('dPesan'); if(!ta.value) return;
+    ta.select(); ta.setSelectionRange(0,99999);
+    try{ document.execCommand('copy'); show('msgD','ok','✔ Pesan disalin — tinggal tempel di WhatsApp.'); }
+    catch(e){ show('msgD','err','Salin manual dari kotak di atas.'); }
+  }
+
+  // ---- actions ----
+  function saveFu(){
+    if(!CUR||!guard()) return;
+    busyOn('Menyimpan followup…');
+    var p={ key:CUR.key,
+            kategori:document.getElementById('dKat').value,
+            followup:document.getElementById('dFu').value,
+            hasil:document.getElementById('dHasil').value,
+            catatan:document.getElementById('dCatatan').value };
+    google.script.run.withSuccessHandler(function(){
+      busyOff(); show('msgD','ok','✔ Followup tersimpan.');
+      CUR['Kategori Masalah']=p.kategori; CUR.followup=p.followup;
+      CUR.hasil=p.hasil; CUR['Catatan CS']=p.catatan;
+      CUR.flagTidakValid=(ME.hasilKlaimTidakValid||[]).indexOf(p.hasil)>=0;
+      loadWork();
+    }).withFailureHandler(function(e){ busyOff(); show('msgD','err','✕ '+(e&&e.message?e.message:'Gagal menyimpan.')); })
+    .saveFollowup(p);
+  }
+
+  // ---- Antrean foto (paste + pilih file) sebelum disimpan ----
+  var PENDING=[];   // {b64, type, name, src:'paste'|'file'}
+  function extB64(mime){ return (mime&&mime.indexOf('png')>=0)?'png':(mime&&mime.indexOf('webp')>=0?'webp':'jpg'); }
+  function stampNama(src,mime){
+    var t=new Date(), p=function(n){return (''+n).padStart(2,'0');};
+    return (src==='paste'?'paste':'foto')+'_'+t.getFullYear()+p(t.getMonth()+1)+p(t.getDate())+'_'+
+      p(t.getHours())+p(t.getMinutes())+p(t.getSeconds())+'_'+Math.floor(Math.random()*1000)+'.'+extB64(mime);
+  }
+  function pushPending(b64,mime,src){
+    PENDING.push({b64:b64,type:mime||'image/jpeg',name:stampNama(src,mime),src:src});
+    renderPending();
+  }
+  function onPaste(e){
+    var items=(e.clipboardData||{}).items||[];
+    var found=false;
+    for(var i=0;i<items.length;i++){
+      if(items[i].type&&items[i].type.indexOf('image')===0){
+        var f=items[i].getAsFile(); if(!f) continue;
+        var rd=new FileReader();
+        rd.onload=function(){ pushPending(rd.result.split(',')[1], f.type, 'paste'); };
+        rd.readAsDataURL(f); found=true;
+      }
+    }
+    if(found){ e.preventDefault(); hide('msgD'); }
+    else show('msgD','info','Clipboard tidak berisi gambar. Screenshot/snip dulu, lalu tempel di sini.');
+  }
+  function onPickFiles(files){
+    Array.prototype.slice.call(files||[]).forEach(function(f){
+      if(f.type.indexOf('image')!==0) return;
+      var rd=new FileReader();
+      rd.onload=function(){ pushPending(rd.result.split(',')[1], f.type, 'file'); };
+      rd.readAsDataURL(f);
+    });
+    document.getElementById('dFile').value='';
+  }
+  function renderPending(){
+    var el=document.getElementById('dPending');
+    el.innerHTML=PENDING.map(function(p,idx){
+      return '<div class="th pend"><img src="data:'+esc(p.type)+';base64,'+p.b64+'" onclick="zoomB64('+idx+')">'+
+        '<span class="badge2">'+(p.src==='paste'?'tempel':'file')+'</span>'+
+        '<button class="del" onclick="delPending('+idx+')" title="Buang">×</button></div>';
+    }).join('');
+    document.getElementById('btnUp').disabled = (PENDING.length===0);
+    document.getElementById('btnUp').textContent = PENDING.length
+      ? ('⬆ Simpan '+PENDING.length+' foto ke Drive') : '⬆ Simpan foto ke Drive';
+  }
+  function delPending(idx){ PENDING.splice(idx,1); renderPending(); }
+  function zoomB64(idx){ var p=PENDING[idx]; if(p) openLbSrc('data:'+p.type+';base64,'+p.b64,''); }
+
+  function upPods(){
+    if(!CUR||!guard()) return;
+    if(!PENDING.length){ show('msgD','err','Belum ada foto. Tempel gambar atau pilih file dulu.'); return; }
+    var total=PENDING.length, i=0;
+    busyOn('Menyimpan foto 1/'+total+'…');
+    function next(){
+      if(i>=total){ busyOff(); PENDING=[]; renderPending();
+        show('msgD','ok','✔ '+total+' foto tersimpan ke Drive.'); loadWork(); return; }
+      document.getElementById('busyTxt').textContent='Menyimpan foto '+(i+1)+'/'+total+'…';
+      var p=PENDING[i];
+      google.script.run.withSuccessHandler(function(r){
+        CUR.pods=r.pods; renderThumbs(r.pods); i++; next();
+      }).withFailureHandler(function(e){
+        busyOff(); show('msgD','err','✕ Gagal menyimpan foto '+(i+1)+': '+(e&&e.message?e.message:''));
+      }).addPod(CUR.key, p.b64, p.name, p.type);
+    }
+    next();
+  }
+
+  function delPod(url){
+    if(!CUR||!guard()) return;
+    if(!confirm('Hapus foto POD pembanding ini?')) return;
+    busyOn('Menghapus foto…');
+    google.script.run.withSuccessHandler(function(r){
+      busyOff(); CUR.pods=r.pods; renderThumbs(r.pods); show('msgD','ok','✔ Foto dihapus.'); loadWork();
+    }).withFailureHandler(function(e){ busyOff(); show('msgD','err','✕ '+(e&&e.message?e.message:'Gagal.')); })
+    .removePod(CUR.key,url);
+  }
+
+  // ---- report ----
+  var chDaily, chAge;
+  function loadReport(){
+    // KPI & tabel report punya loader-nya sendiri — tidak lagi memblokir seluruh
+    // layar dengan overlay, jadi bagian yang sudah siap tetap bisa dilihat.
+    loadOn('insight','Menyusun ringkasan…');
+    loadOn('csTable','Menghitung produktivitas CS…');
+    ['rTotal','rBelum','rSelesai','rPod','rInv','rCod','rProd','rSelamat','rHilang','rToday','rAvg']
+      .forEach(function(id){ var e=document.getElementById(id); if(e) e.innerHTML='<span class="spin g"></span>'; });
+    google.script.run.withSuccessHandler(function(d){
+      loadOff('insight'); loadOff('csTable'); renderReport(d);
+    }).withFailureHandler(function(e){
+      var p=(e&&e.message?e.message:'Gagal.');
+      loadErr('insight',p); loadErr('csTable',p);
+      show('msgTop','err','✕ '+p);
+    }).getReport();
+  }
+
+  function renderReport(d){
+    // KPI baris 1
+    document.getElementById('rTotal').textContent=n(d.total);
+    document.getElementById('rSplit').textContent=n(d.codCount)+' COD · '+n(d.nonCodCount)+' Non-COD';
+    document.getElementById('rBelum').textContent=n(d.belum);
+    document.getElementById('rBelumPct').textContent=d.total?pct(d.belum,d.total)+'% dari total':'—';
+    document.getElementById('rSelesai').textContent=n(d.selesai);
+    document.getElementById('rSelesaiPct').textContent=d.pctSelesai+'% tuntas · '+n(d.dalamProses)+' dlm proses';
+    document.getElementById('rToday').textContent=n(d.todayCount);
+    document.getElementById('rAvg').textContent='rata-rata '+d.avgPerDay+'/hari (7 hr)';
+
+    // KPI baris 2
+    document.getElementById('rCod').textContent=rp(d.nilaiCOD);
+    document.getElementById('rProd').textContent=rp(d.nilaiProduk);
+    document.getElementById('rInv').textContent=n(d.klaimTidakValid);
+    document.getElementById('rInvPct').textContent=d.terverifikasi
+      ? d.pctTidakValid+'% dari '+n(d.terverifikasi)+' yang diverifikasi' : 'belum ada verifikasi';
+    document.getElementById('rPod').textContent=n(d.podCount);
+    document.getElementById('rPodPct').textContent=d.pctPod+'% resi ada bukti foto';
+
+    document.getElementById('rSelamat').textContent=rp(d.nilaiSelamat);
+    document.getElementById('rHilang').textContent=rp(d.nilaiHilang);
+    document.getElementById('dSrc').textContent=' — sumber: '+(d.dailySumber||'-');
+
+    insight(d);
+
+    var red=['#9E1B1B','#C0392B','#E67E22','#B03A2E','#D98880','#7B241C','#CD6155','#A93226','#EC7063','#922B21','#E59866','#BA4A00'];
+
+    // tren harian
+    if(chDaily) chDaily.destroy();
+    chDaily=new Chart(document.getElementById('cDaily'),{
+      type:'line',
+      data:{labels:d.daily.map(function(x){return x.label;}),
+            datasets:[{label:'Resi difollowup',data:d.daily.map(function(x){return x.n;}),
+              borderColor:'#9E1B1B',backgroundColor:'rgba(158,27,27,.10)',fill:true,tension:.3,
+              pointRadius:3,pointBackgroundColor:'#9E1B1B'}]},
+      options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}});
+
+    chFu=mk(chFu,'cFu','doughnut',d.byFollowup,red);
+    chAge=mk(chAge,'cAge','bar',d.aging,['#0f9d58','#E67E22','#C0392B','#7B241C']);
+    chKat=mk(chKat,'cKat','barY',d.byKategori,'#9E1B1B');
+    chHasil=mk(chHasil,'cHasil','barY',d.byHasil,'#C0392B');
+
+    // tabel per CS
+    document.getElementById('tblTitle').textContent=d.isSuper?'Performa per CS':'Produktivitas Saya';
+    var rows=d.isSuper?d.perCS:d.perCS.filter(function(c){return c.nama===d.nama;});
+    if(!rows.length){ document.getElementById('csTable').innerHTML=
+      '<tr><td style="color:#6b7280;">Belum ada data.</td></tr>'; return; }
+    document.getElementById('csTable').innerHTML=
+      '<thead><tr><th>CS</th><th>Resi</th><th>Belum</th><th>Selesai</th><th>Tuntas</th>'+
+      '<th>Hari ini</th><th>7 hari</th><th>Bukti POD</th></tr></thead><tbody>'+
+      rows.map(function(c){
+        return '<tr><td><b>'+esc(c.nama)+'</b></td><td>'+n(c.total)+'</td>'+
+          '<td'+(c.belum?' style="color:#9E1B1B;font-weight:700;"':'')+'>'+n(c.belum)+'</td>'+
+          '<td>'+n(c.selesai)+'</td>'+
+          '<td style="min-width:88px;">'+c.pctSelesai+'%<div class="bar"><i style="width:'+c.pctSelesai+'%"></i></div></td>'+
+          '<td'+(c.today?' style="color:#1a56c4;font-weight:700;"':'')+'>'+n(c.today)+'</td>'+
+          '<td>'+n(c.week7)+'</td><td>'+n(c.pod)+'</td></tr>';
+      }).join('')+'</tbody>';
+  }
+
+  function pct(a,b){ return b?Math.round(a/b*100):0; }
+
+  /** Insight otomatis — kalimat sederhana, actionable. */
+  function insight(d){
+    var li=[];
+    if(d.total===0){ document.getElementById('insight').innerHTML=''; return; }
+    var tua=(d.aging['4–7 hari']||0)+(d.aging['> 7 hari']||0);
+    if(tua) li.push('<b>'+n(tua)+' resi</b> belum disentuh lebih dari 3 hari — prioritaskan hari ini.');
+    if(d.belum===0) li.push('Semua resi sudah difollowup. Kerja bagus! 🎉');
+    if(d.klaimTidakValid) li.push('<b>'+n(d.klaimTidakValid)+' klaim kurir terbukti tidak sesuai</b> pengakuan konsumen ('+
+      d.pctTidakValid+'% dari yang diverifikasi) — bahan komplain ke ekspedisi.');
+    if(d.terverifikasi && d.pctPod<50) li.push('Baru <b>'+d.pctPod+'%</b> resi punya foto bukti POD pembanding. '+
+      'Tanpa bukti, komplain ke ekspedisi lemah.');
+    if(d.nilaiSelamat>0) li.push('Potensi nilai produk terselamatkan dari followup: <b>'+rp(d.nilaiSelamat)+'</b>.');
+    if(d.todayCount===0) li.push('Belum ada followup hari ini.');
+    else li.push('Hari ini sudah <b>'+n(d.todayCount)+'</b> konsumen difollowup (rata-rata 7 hari: '+d.avgPerDay+'/hari).');
+    document.getElementById('insight').innerHTML=
+      '<h4>💡 Ringkasan &amp; Tindakan</h4><ul>'+li.slice(0,5).map(function(x){return '<li>'+x+'</li>';}).join('')+'</ul>';
+  }
+
+  function mk(old,id,kind,obj,color){
+    if(old) old.destroy();
+    var e=Object.keys(obj).map(function(k){return [k,obj[k]];});
+    if(kind!=='bar') e.sort(function(a,b){return b[1]-a[1];});
+    var labels=e.map(function(x){return x[0];}), vals=e.map(function(x){return x[1];});
+    if(kind==='doughnut') return new Chart(document.getElementById(id),{type:'doughnut',
+      data:{labels:labels,datasets:[{data:vals,backgroundColor:color}]},
+      options:{plugins:{legend:{position:'bottom',labels:{font:{size:11},boxWidth:12}}}}});
+    if(kind==='bar') return new Chart(document.getElementById(id),{type:'bar',
+      data:{labels:labels,datasets:[{data:vals,backgroundColor:color}]},
+      options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}});
+    return new Chart(document.getElementById(id),{type:'bar',
+      data:{labels:labels,datasets:[{data:vals,backgroundColor:color}]},
+      options:{indexAxis:'y',plugins:{legend:{display:false}},
+        scales:{x:{beginAtZero:true,ticks:{precision:0}},y:{ticks:{font:{size:10},autoSkip:false}}}}});
+  }
+</script>
+</body>
+</html>

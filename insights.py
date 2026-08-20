@@ -58,11 +58,13 @@ def cashflow_insights(sim: dict) -> list[str]:
     km_txt = (f", tapi **modal aman ditarik penuh baru di hari ke-{km}** (setelah itu "
               f"saldo kas tak pernah minus lagi)." if km is not None
               else ", dan modal belum aman ditarik penuh dalam periode ini.")
+    _cukup = ("cukup ✓" if s.get("modal_cukup", True)
+              else f"KURANG ⚠️ (tambah ±{_rp(s.get('kekurangan_modal', 0))})")
     out.append(
-        f"💰 **Modal awal realistis ±{_rp(s.get('modal_awal', 0))}** — kas terdalam yang "
-        f"harus ditalangi (iklan + beli produk HPP ±{_rp(s.get('total_beli_produk', 0))} + "
-        f"opex) sebelum omzet COD cair. Saldo kas terendah {_rp(s.get('saldo_kas_min', 0))}. "
-        f"{bep_txt}{km_txt}"
+        f"💰 **Modal Awal Anda {_rp(s.get('modal_awal', 0))} → {_cukup}**. Modal kerja yang "
+        f"harus mengendap (defisit kas terdalam) ±{_rp(s.get('modal_dibutuhkan', 0))} "
+        f"(iklan + beli produk HPP ±{_rp(s.get('total_beli_produk', 0))} + opex) sebelum omzet "
+        f"COD cair. {bep_txt}{km_txt}"
     )
     out.append(
         f"📈 **Laba bersih ±{_rp(s.get('net_profit', 0))}** (omzet − HPP terjual − iklan − "

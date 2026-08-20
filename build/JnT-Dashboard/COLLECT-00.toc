@@ -5,77 +5,9 @@
    'C:\\Users\\moeha\\Work\\EKIS\\MeikaBerkarya\\Meika '
    'Berkarya\\build\\JnT-Dashboard\\JnT-Dashboard.exe',
    'EXECUTABLE'),
-  ('JnT\\all_resi\\202606192041-693880-Resi Mei 2026.xlsx',
-   'C:\\Users\\moeha\\Work\\EKIS\\MeikaBerkarya\\Meika '
-   'Berkarya\\JnT\\all_resi\\202606192041-693880-Resi Mei 2026.xlsx',
-   'DATA'),
-  ('JnT\\all_resi\\202606291444-951610-Resi Juni 2026.xlsx',
-   'C:\\Users\\moeha\\Work\\EKIS\\MeikaBerkarya\\Meika '
-   'Berkarya\\JnT\\all_resi\\202606291444-951610-Resi Juni 2026.xlsx',
-   'DATA'),
   ('JnT\\jnt_recap.xlsx',
    'C:\\Users\\moeha\\Work\\EKIS\\MeikaBerkarya\\Meika '
    'Berkarya\\JnT\\jnt_recap.xlsx',
-   'DATA'),
-  ('JnT\\problem\\202606212222-572558-Laporan Paket Tertunda Juni 2026.xlsx',
-   'C:\\Users\\moeha\\Work\\EKIS\\MeikaBerkarya\\Meika '
-   'Berkarya\\JnT\\problem\\202606212222-572558-Laporan Paket Tertunda Juni '
-   '2026.xlsx',
-   'DATA'),
-  ('JnT\\settle_reconcile\\COD Reconciliation Details-MEIKA-BERKARYA (1).xls',
-   'C:\\Users\\moeha\\Work\\EKIS\\MeikaBerkarya\\Meika '
-   'Berkarya\\JnT\\settle_reconcile\\COD Reconciliation Details-MEIKA-BERKARYA '
-   '(1).xls',
-   'DATA'),
-  ('JnT\\settle_reconcile\\COD Reconciliation Details-MEIKA-BERKARYA (10).xls',
-   'C:\\Users\\moeha\\Work\\EKIS\\MeikaBerkarya\\Meika '
-   'Berkarya\\JnT\\settle_reconcile\\COD Reconciliation Details-MEIKA-BERKARYA '
-   '(10).xls',
-   'DATA'),
-  ('JnT\\settle_reconcile\\COD Reconciliation Details-MEIKA-BERKARYA (2).xls',
-   'C:\\Users\\moeha\\Work\\EKIS\\MeikaBerkarya\\Meika '
-   'Berkarya\\JnT\\settle_reconcile\\COD Reconciliation Details-MEIKA-BERKARYA '
-   '(2).xls',
-   'DATA'),
-  ('JnT\\settle_reconcile\\COD Reconciliation Details-MEIKA-BERKARYA (3).xls',
-   'C:\\Users\\moeha\\Work\\EKIS\\MeikaBerkarya\\Meika '
-   'Berkarya\\JnT\\settle_reconcile\\COD Reconciliation Details-MEIKA-BERKARYA '
-   '(3).xls',
-   'DATA'),
-  ('JnT\\settle_reconcile\\COD Reconciliation Details-MEIKA-BERKARYA (4).xls',
-   'C:\\Users\\moeha\\Work\\EKIS\\MeikaBerkarya\\Meika '
-   'Berkarya\\JnT\\settle_reconcile\\COD Reconciliation Details-MEIKA-BERKARYA '
-   '(4).xls',
-   'DATA'),
-  ('JnT\\settle_reconcile\\COD Reconciliation Details-MEIKA-BERKARYA (5).xls',
-   'C:\\Users\\moeha\\Work\\EKIS\\MeikaBerkarya\\Meika '
-   'Berkarya\\JnT\\settle_reconcile\\COD Reconciliation Details-MEIKA-BERKARYA '
-   '(5).xls',
-   'DATA'),
-  ('JnT\\settle_reconcile\\COD Reconciliation Details-MEIKA-BERKARYA (6).xls',
-   'C:\\Users\\moeha\\Work\\EKIS\\MeikaBerkarya\\Meika '
-   'Berkarya\\JnT\\settle_reconcile\\COD Reconciliation Details-MEIKA-BERKARYA '
-   '(6).xls',
-   'DATA'),
-  ('JnT\\settle_reconcile\\COD Reconciliation Details-MEIKA-BERKARYA (7).xls',
-   'C:\\Users\\moeha\\Work\\EKIS\\MeikaBerkarya\\Meika '
-   'Berkarya\\JnT\\settle_reconcile\\COD Reconciliation Details-MEIKA-BERKARYA '
-   '(7).xls',
-   'DATA'),
-  ('JnT\\settle_reconcile\\COD Reconciliation Details-MEIKA-BERKARYA (8).xls',
-   'C:\\Users\\moeha\\Work\\EKIS\\MeikaBerkarya\\Meika '
-   'Berkarya\\JnT\\settle_reconcile\\COD Reconciliation Details-MEIKA-BERKARYA '
-   '(8).xls',
-   'DATA'),
-  ('JnT\\settle_reconcile\\COD Reconciliation Details-MEIKA-BERKARYA (9).xls',
-   'C:\\Users\\moeha\\Work\\EKIS\\MeikaBerkarya\\Meika '
-   'Berkarya\\JnT\\settle_reconcile\\COD Reconciliation Details-MEIKA-BERKARYA '
-   '(9).xls',
-   'DATA'),
-  ('JnT\\settle_reconcile\\COD Reconciliation Details-MEIKA-BERKARYA.xls',
-   'C:\\Users\\moeha\\Work\\EKIS\\MeikaBerkarya\\Meika '
-   'Berkarya\\JnT\\settle_reconcile\\COD Reconciliation '
-   'Details-MEIKA-BERKARYA.xls',
    'DATA'),
   ('JnT\\~$jnt_recap.xlsx',
    'C:\\Users\\moeha\\Work\\EKIS\\MeikaBerkarya\\Meika '

@@ -30,6 +30,7 @@ import settlement_engine as se
 def build_params(baseline: dict, overrides: dict | None = None) -> dict:
     """Gabungkan default + baseline histori + override pengguna."""
     p = {
+        "modal_awal": config.DEFAULTS.get("modal_awal", 0),
         "budget_harian": config.DEFAULTS["budget_harian"],
         "cpl": config.DEFAULTS["cpl"],
         "closing_rate": config.DEFAULTS["closing_rate"],
@@ -42,6 +43,9 @@ def build_params(baseline: dict, overrides: dict | None = None) -> dict:
         "cod_fee_rate": baseline.get("cod_fee_rate", config.DEFAULTS["cod_fee_rate"]),
         "pct_cod": baseline.get("pct_cod", config.DEFAULTS["pct_cod"]),
         "horizon_days": config.DEFAULTS["horizon_days"],
+        "opex_fix_bulan": config.DEFAULTS.get("opex_fix_bulan", 0),
+        "opex_var_resi": config.DEFAULTS.get("opex_var_resi", 0),
+        "payday": config.DEFAULTS.get("payday", 25),
         "mode": "mode2",
         "daily_lag": config.SETTLE_DAILY_LAG_DEFAULT,
         "start_date": pd.Timestamp.today().normalize(),
@@ -94,10 +98,32 @@ def _shift_lag_dist(recv_dist, target_mean) -> dict:
     return dict(out)
 
 
+def payday_schedule(start, horizon, payday_dom, amount) -> dict:
+    """
+    Jadwal pembayaran opex TETAP (gaji): {tanggal_gajian: nominal} untuk tiap bulan
+    kalender dalam periode operasi [start, start+horizon-1]. Bila tanggal gajian
+    melebihi jumlah hari bulan, dipakai hari terakhir bulan itu.
+    """
+    out = {}
+    amount = float(amount or 0)
+    if amount <= 0 or horizon <= 0:
+        return out
+    start = pd.Timestamp(start).normalize()
+    end = start + pd.Timedelta(days=int(horizon) - 1)
+    cur = pd.Timestamp(start.year, start.month, 1)
+    while cur <= end:
+        dom = min(int(payday_dom or 25), cur.days_in_month)
+        pay = pd.Timestamp(cur.year, cur.month, dom)
+        if start <= pay <= end:
+            out[pay] = out.get(pay, 0.0) + amount
+        cur = cur + pd.offsets.MonthBegin(1)
+    return out
+
+
 def _build_timeline(start, horizon, recv_dist, avg_durasi, resi_per_day,
                     ad_per_day, success_rate, pct_cod, cod_disb, tr_in,
-                    hpp_per_resi, return_ongkir, opex_per_day,
-                    mode, daily_lag) -> pd.DataFrame:
+                    hpp_per_resi, return_ongkir, opex_var_per_resi, opex_fix_sched,
+                    mode, daily_lag, stock_orders_free=0.0) -> pd.DataFrame:
     """
     Timeline cashflow harian (model kas realistis, COD vs Non-COD dipisah).
 
@@ -154,13 +180,27 @@ def _build_timeline(start, horizon, recv_dist, avg_durasi, resi_per_day,
     for d in full_range:
         in_ship = start <= d < start + pd.Timedelta(days=horizon)
         ad = ad_per_day if in_ship else 0.0
-        hpp_spend = (resi_per_day * hpp_per_resi) if in_ship else 0.0
-        opex = opex_per_day if in_ship else 0.0
+        # HPP cash-out STOK-AWARE: order awal dipenuhi stok gudang (tak beli),
+        # pembelian baru hanya untuk order melebihi total stok (depletion back-loaded).
+        if in_ship:
+            _si = (d - start).days
+            _N = resi_per_day * horizon
+            _cs = resi_per_day * _si
+            _ce = resi_per_day * (_si + 1)
+            buy_orders = max(min(_ce, _N) - max(_cs, stock_orders_free), 0.0)
+            hpp_spend = buy_orders * hpp_per_resi
+        else:
+            hpp_spend = 0.0
+        # Opex = variabel per resi (skala volume, hari kirim) + tetap/gaji (lump saat gajian)
+        opex_var = (resi_per_day * opex_var_per_resi) if in_ship else 0.0
+        opex = opex_var + opex_fix_sched.get(d, 0.0)
         ti = transfer_in.get(d, 0.0)
         cc = cod_cair.get(d, 0.0)
         cs = cod_shipped.get(d, 0.0)
         ro = return_out.get(d, 0.0)
-        laba = rev_accr.get(d, 0.0) - cogs_accr.get(d, 0.0) - ad - opex - ro
+        rev_a = rev_accr.get(d, 0.0)
+        cogs_a = cogs_accr.get(d, 0.0)
+        laba = rev_a - cogs_a - ad - opex - ro
         rows.append({
             "tanggal": d, "ad_spend": ad, "hpp_spend": hpp_spend, "opex": opex,
             "return_ongkir": ro,
@@ -168,7 +208,7 @@ def _build_timeline(start, horizon, recv_dist, avg_durasi, resi_per_day,
             "cash_in": ti + cc, "cash_out": ad + hpp_spend + opex + ro,
             "omzet_realized": ti + cc, "omzet_earned": ti + cs,
             "net_cashflow": ti + cc - ad - hpp_spend - opex - ro,
-            "laba_harian": laba,
+            "rev_accrual": rev_a, "cogs_accrual": cogs_a, "laba_harian": laba,
         })
     tl = pd.DataFrame(rows)
     tl["cum_net"] = tl["net_cashflow"].cumsum()
@@ -229,7 +269,7 @@ def simulate(baseline: dict, recv_dist: pd.Series, overrides: dict) -> dict:
     tl = _build_timeline(
         start, horizon, recv_dist, baseline.get("avg_durasi"),
         resi_per_day, ad_per_day, p["success_rate"], p["pct_cod"],
-        cod_disb, tr_in, p["hpp"], return_ongkir, 0.0,
+        cod_disb, tr_in, p["hpp"], return_ongkir, 0.0, {},
         p["mode"], p["daily_lag"])
 
     # ---------------- AGREGASI MINGGUAN / BULANAN ----------------
@@ -292,6 +332,38 @@ def _resample(tl: pd.DataFrame, rule: str) -> pd.DataFrame:
     return g
 
 
+_BULAN_ID = {1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "Mei", 6: "Jun",
+             7: "Jul", 8: "Agu", 9: "Sep", 10: "Okt", 11: "Nov", 12: "Des"}
+
+
+def monthly_pnl(tl: pd.DataFrame, modal_awal: float = 0.0) -> pd.DataFrame:
+    """
+    Laba-Rugi (akrual) + Arus Kas per BULAN KALENDER, plus saldo kas akhir tiap bulan.
+    Kolom akrual: omzet, HPP terjual, iklan, opex, retur -> laba bersih (akrual).
+    Kolom kas   : kas masuk, kas keluar, arus kas bersih, saldo kas akhir (= modal +
+                  akumulasi arus kas s/d akhir bulan itu).
+    """
+    if tl is None or tl.empty:
+        return pd.DataFrame()
+    d = tl.copy()
+    d["bulan"] = d["tanggal"].dt.to_period("M")
+    agg = (d.groupby("bulan").agg(
+        omzet=("rev_accrual", "sum"),
+        hpp_terjual=("cogs_accrual", "sum"),
+        iklan=("ad_spend", "sum"),
+        opex=("opex", "sum"),
+        retur=("return_ongkir", "sum"),
+        laba_bersih=("laba_harian", "sum"),
+        kas_masuk=("cash_in", "sum"),
+        kas_keluar=("cash_out", "sum"),
+        arus_kas=("net_cashflow", "sum"),
+    ).reset_index())
+    agg["laba_kumulatif"] = agg["laba_bersih"].cumsum()
+    agg["saldo_kas_akhir"] = modal_awal + agg["arus_kas"].cumsum()
+    agg["label"] = agg["bulan"].apply(lambda p: f"{_BULAN_ID[p.month]} {p.year}")
+    return agg
+
+
 def simulate_multi(baseline: dict, recv_dist: pd.Series,
                    product_rows: pd.DataFrame, overrides: dict) -> dict:
     """
@@ -325,6 +397,8 @@ def simulate_multi(baseline: dict, recv_dist: pd.Series,
         cpl = _f(r.get("CPL"))
         nilai_produk = _f(r.get("Nilai Produk"))
         hpp = _f(r.get("HPP"))
+        stok_pcs = _f(r.get("Stok (pcs)"))
+        pcs_order = _f(r.get("Pcs/Order")) or 1.0
         nama = str(r.get("Produk", "-"))
         if not nama or nama in ("-", "nan", "None"):
             continue  # lewati baris kosong
@@ -334,6 +408,10 @@ def simulate_multi(baseline: dict, recv_dist: pd.Series,
         resi = order
         sukses = resi * success
         gagal = resi - sukses
+        # STOK: berapa order yang bisa dipenuhi dari stok gudang (tanpa beli baru)
+        stock_orders = (stok_pcs / pcs_order) if pcs_order > 0 else 0.0
+        orders_from_stock = min(resi, stock_orders)
+        orders_buy = max(resi - stock_orders, 0.0)
         # kas masuk per resi sukses, dibedakan metode bayar
         cod_disb = nilai_produk + cashback - cod_fee_rate * (nilai_produk + ongkir)
         tr_in = nilai_produk + ongkir                # transfer: produk + ongkir penuh
@@ -342,24 +420,36 @@ def simulate_multi(baseline: dict, recv_dist: pd.Series,
         revenue = sukses_cod * cod_disb + sukses_tr * tr_in   # total kas masuk kotor
         cogs = hpp * sukses                          # HPP hanya barang terjual (retur balik)
         return_cost = return_ongkir * gagal          # ongkir retur paket gagal
-        modal_hpp = hpp * resi                        # kas beli stok semua paket dikirim
+        modal_hpp = hpp * resi                        # HPP semua paket (bila beli semua)
+        beli_hpp = hpp * orders_buy                    # kas beli baru (di atas stok)
+        hemat_hpp = hpp * orders_from_stock            # hemat dari stok gudang
         net_total = revenue - cogs - return_cost - budget_total   # laba produk (sblm opex)
         margin_jual = nilai_produk - hpp
+        opex_var_r = float(p.get("opex_var_resi", 0) or 0)
+        # Contribution Margin per order sukses (setelah fee, +cashback, −opex var)
+        cm = nilai_produk - hpp - cod_fee_rate * (nilai_produk + ongkir) + cashback - opex_var_r
+        cm_pct = (cm / nilai_produk * 100) if nilai_produk else 0.0
         roi = (net_total / budget_total) if budget_total > 0 else 0
         rows.append({
             "Produk": nama, "budget_harian": bh, "budget_total": budget_total,
             "cpl": cpl, "nilai_produk": nilai_produk, "hpp": hpp,
+            "aov": nilai_produk, "cm": cm, "cm_pct": cm_pct,
+            "stok_pcs": stok_pcs, "pcs_order": pcs_order, "stock_orders": stock_orders,
+            "orders_from_stock": orders_from_stock, "orders_buy": orders_buy,
             "lead": lead, "order": order, "resi": resi, "sukses": sukses, "gagal": gagal,
             "cod_disb": cod_disb, "tr_in": tr_in,
             "margin_jual_per_resi": margin_jual,
             "net_per_resi": (net_total / resi) if resi else 0,
-            "modal_hpp": modal_hpp, "revenue": revenue, "cogs": cogs,
+            "modal_hpp": modal_hpp, "beli_hpp": beli_hpp, "hemat_hpp": hemat_hpp,
+            "revenue": revenue, "cogs": cogs,
             "return_cost": return_cost, "net_total": net_total, "roi": roi,
         })
     cols = ["Produk", "budget_harian", "budget_total", "cpl", "nilai_produk", "hpp",
+            "aov", "cm", "cm_pct",
+            "stok_pcs", "pcs_order", "stock_orders", "orders_from_stock", "orders_buy",
             "lead", "order", "resi", "sukses", "gagal", "cod_disb", "tr_in",
-            "margin_jual_per_resi", "net_per_resi", "modal_hpp", "revenue", "cogs",
-            "return_cost", "net_total", "roi"]
+            "margin_jual_per_resi", "net_per_resi", "modal_hpp", "beli_hpp", "hemat_hpp",
+            "revenue", "cogs", "return_cost", "net_total", "roi"]
     pdf = pd.DataFrame(rows, columns=cols)
 
     # ---- agregasi ----
@@ -367,7 +457,8 @@ def simulate_multi(baseline: dict, recv_dist: pd.Series,
     n_resi = pdf["resi"].sum(); n_sukses = pdf["sukses"].sum(); n_gagal = pdf["gagal"].sum()
     budget_harian_tot = pdf["budget_harian"].sum()
     budget_total = pdf["budget_total"].sum()
-    total_modal_hpp = pdf["modal_hpp"].sum()
+    total_modal_hpp = pdf["modal_hpp"].sum()                 # HPP semua paket (full)
+    total_stock_orders = pdf["orders_from_stock"].sum()      # order tercukupi stok
     total_revenue = pdf["revenue"].sum()
     total_cogs = pdf["cogs"].sum()
     total_return_cost = pdf["return_cost"].sum()
@@ -389,10 +480,11 @@ def simulate_multi(baseline: dict, recv_dist: pd.Series,
     eff_hpp_resi = total_modal_hpp / n_resi if n_resi else 0
     eff_net = (pdf["net_total"].sum() / n_sukses) if n_sukses else 0
 
-    # opex teknis (packing, gaji, petty cash) — 1 input per 30 hari
-    opex_30 = float(p.get("opex_30", 0) or 0)
-    opex_per_day = opex_30 / 30.0
-    total_opex = opex_per_day * horizon
+    # OPEX: tetap/bulan (gaji, sewa) keluar LUMP di tanggal gajian; variabel per resi.
+    opex_fix_bulan = float(p.get("opex_fix_bulan", 0) or 0)
+    opex_var_resi = float(p.get("opex_var_resi", 0) or 0)
+    payday = int(p.get("payday", 25) or 25)
+    opex_fix_sched = payday_schedule(start, horizon, payday, opex_fix_bulan)
 
     resi_per_day = n_resi / horizon if horizon else 0
     ad_per_day = budget_harian_tot
@@ -404,7 +496,11 @@ def simulate_multi(baseline: dict, recv_dist: pd.Series,
     tl = _build_timeline(start, horizon, eff_recv, avg_dur_eff,
                          resi_per_day, ad_per_day, success, pct_cod,
                          eff_cod_disb, eff_tr_in, eff_hpp_resi, return_ongkir,
-                         opex_per_day, p["mode"], p["daily_lag"])
+                         opex_var_resi, opex_fix_sched, p["mode"], p["daily_lag"],
+                         stock_orders_free=total_stock_orders)
+    total_opex = float(tl["opex"].sum())                 # opex aktual (tetap + variabel)
+    total_beli_produk = float(tl["hpp_spend"].sum())     # kas beli produk (stok-aware)
+    stok_hemat = max(total_modal_hpp - total_beli_produk, 0.0)  # penghematan dari stok
 
     weekly = _resample(tl, "W-MON")
     monthly = _resample(tl, "MS")
@@ -481,6 +577,36 @@ def simulate_multi(baseline: dict, recv_dist: pd.Series,
             break
     laba_akhir_positif = bool(tl["laba_kumulatif"].iloc[-1] >= 0)
 
+    # ---- MODAL AWAL (input) → POSISI KAS RIIL & RUNWAY ----
+    modal_awal_input = float(p.get("modal_awal", 0) or 0)
+    tl["kas_riil"] = modal_awal_input + tl["net_cashflow"].cumsum()
+    neg_riil = tl["kas_riil"] < -1e-6
+    hari_kas_habis = (int((tl.loc[neg_riil, "tanggal"].iloc[0] - start).days)
+                      if neg_riil.any() else None)     # None = kas tak pernah habis
+    kas_riil_terendah = float(tl["kas_riil"].min())
+    modal_cukup = bool(kas_riil_terendah >= -1e-6)      # modal menutup defisit terdalam
+    kekurangan_modal = max(-kas_riil_terendah, 0.0)     # tambahan modal bila kurang
+
+    last_day = int((tl["tanggal"].iloc[-1] - start).days)
+
+    def _kas_at(day):
+        dt = start + pd.Timedelta(days=day)
+        r = tl.loc[tl["tanggal"] == dt, "kas_riil"]
+        return float(r.iloc[0]) if not r.empty else None
+
+    def _laba_akrual_at(day):
+        dt = start + pd.Timedelta(days=day)
+        r = tl.loc[tl["tanggal"] <= dt, "laba_harian"]
+        return float(r.sum()) if len(r) else None
+
+    posisi = {}                                          # {hari: {kas, laba_akrual}}
+    for day in (30, 60, 90, horizon):
+        if day <= last_day:
+            posisi[day] = {"kas": _kas_at(day), "laba_akrual": _laba_akrual_at(day)}
+    kas_riil_akhir = float(tl["kas_riil"].iloc[-1])      # setelah semua COD cair
+
+    monthly_tab = monthly_pnl(tl, modal_awal_input)
+
     p["budget_harian"] = budget_harian_tot
     p["budget_iklan"] = budget_total
     summary = {
@@ -501,12 +627,24 @@ def simulate_multi(baseline: dict, recv_dist: pd.Series,
         "outstanding_peak": float(tl["omzet_outstanding"].max()),
         "outstanding_akhir": float(tl["omzet_outstanding"].iloc[-1]),
         "net_cashflow_total": cash_net_total,
-        "total_beli_produk": total_modal_hpp,
-        "total_opex": total_opex, "opex_30": opex_30,
-        "modal_awal": modal_awal, "saldo_kas_min": saldo_min,
+        "total_beli_produk": total_beli_produk,        # kas beli produk (stok-aware)
+        "total_hpp_full": total_modal_hpp,             # bila beli semua (tanpa stok)
+        "stok_hemat": stok_hemat,                      # penghematan dari stok gudang
+        "stock_orders_total": total_stock_orders,      # order tercukupi stok
+        "total_opex": total_opex, "opex_fix_bulan": opex_fix_bulan,
+        "opex_var_resi": opex_var_resi, "payday": payday,
+        "modal_dibutuhkan": modal_awal, "saldo_kas_min": saldo_min,
         "saldo_kas_akhir": float(tl["saldo_kas"].iloc[-1]),
         "modal_kerja": modal_awal, "modal_total": modal_awal,
+        # --- Modal awal (INPUT) & posisi kas riil ---
+        "modal_awal": modal_awal_input,
+        "modal_cukup": modal_cukup, "kekurangan_modal": kekurangan_modal,
+        "hari_kas_habis": hari_kas_habis,
+        "kas_riil_terendah": kas_riil_terendah, "kas_riil_akhir": kas_riil_akhir,
+        "posisi_hari": posisi,
         "net_profit": net_profit, "roi_modal": roi_modal, "roi_iklan": roi_iklan,
+        "roi_modal_awal": ((net_profit / modal_awal_input * 100)
+                           if modal_awal_input > 0 else 0.0),
         "laba_likuid": laba_likuid, "cash_in_likuid": cash_in_likuid,
         "cash_out_horizon": cash_out_horizon, "outstanding_dana": outstanding_dana,
         "lam_cod": lam_cod, "lam_ret": lam_ret,
@@ -523,4 +661,5 @@ def simulate_multi(baseline: dict, recv_dist: pd.Series,
     funnel = {"Lead": n_lead, "Order": n_order, "Resi": n_resi,
               "Paket Sampai": n_sukses}
     return {"summary": summary, "timeline": tl, "weekly": weekly,
-            "monthly": monthly, "funnel": funnel, "per_product": pdf}
+            "monthly": monthly, "monthly_pnl": monthly_tab,
+            "funnel": funnel, "per_product": pdf}

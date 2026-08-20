@@ -57,6 +57,9 @@ def simulate_editable(day_rows, g: dict, recv_dist) -> dict:
     rows = list(day_rows)
     H = len(rows)
     start = pd.Timestamp(g["start_date"]).normalize()
+    opex_var_resi = float(g.get("opex_var_resi", 0) or 0)          # per resi (otomatis)
+    stock_free = float(g.get("stock_orders_free", 0) or 0)         # order tercukupi stok
+    cum_resi = 0.0                                                  # kumulatif order (stok)
     ongkir = g["ongkir"]; cb = g["cashback"]; cfr = g["cod_fee_rate"]
     closing = g["closing"]; success = g["success"]; pcod = g["pct_cod"]
     hpp = g["hpp"]; nilai = g["nilai_produk"]
@@ -75,15 +78,23 @@ def simulate_editable(day_rows, g: dict, recv_dist) -> dict:
     ret_total = 0.0
 
     for i, row in enumerate(rows):
-        budget = _f(row.get("budget")); cpl = _f(row.get("cpl")); opex = _f(row.get("opex"))
+        budget = _f(row.get("budget")); cpl = _f(row.get("cpl"))
+        opex_manual = _f(row.get("opex"))               # petty cash kondisional (input)
+        gaji = _f(row.get("gaji"))                       # gaji lump (kolom editable)
         leads = budget / cpl if cpl > 0 else 0.0
         orders = leads * closing
         resi = orders
         sukses = resi * success
         gagal = resi - sukses
         transfer = sukses * (1 - pcod) * tr_in
-        hpp_out = resi * hpp
+        # HPP cash STOK-AWARE: order awal dipenuhi stok, beli hanya yang melebihi stok
+        _over_after = max(cum_resi + resi - stock_free, 0.0)
+        _over_before = max(cum_resi - stock_free, 0.0)
+        hpp_out = (_over_after - _over_before) * hpp
+        cum_resi += resi
         d = start + pd.Timedelta(days=i)
+        # opex total = petty cash (input) + variabel/resi (otomatis) + gaji (kolom editable)
+        opex = opex_manual + resi * opex_var_resi + gaji
         for lag, prob in lagd.items():
             recv = d + pd.Timedelta(days=int(lag))
             chunk = sukses * pcod * cod_disb * prob
@@ -104,7 +115,8 @@ def simulate_editable(day_rows, g: dict, recv_dist) -> dict:
                            transfer=transfer, hpp_out=hpp_out))
 
     out_rows = []
-    saldo = 0.0
+    modal_awal = float(g.get("modal_awal", 0) or 0)
+    saldo = modal_awal                 # saldo kas dimulai dari modal awal
     for dc in daycol:
         i = dc["i"]
         cin = dc["transfer"] + cod_cair.get(i, 0.0)
@@ -122,11 +134,14 @@ def simulate_editable(day_rows, g: dict, recv_dist) -> dict:
         })
     df = pd.DataFrame(out_rows)
     outstanding = cod_ship_total - cod_cair_inrange
+    kas_terendah = float(df["saldo_akhir"].min()) if not df.empty else modal_awal
     return {
         "table": df,
         "outstanding": outstanding,
         "cod_ship_total": cod_ship_total,
         "cair_inrange": cod_cair_inrange,
-        "modal_awal": float(-df["saldo_akhir"].min()) if not df.empty else 0.0,
-        "saldo_akhir": float(df["saldo_akhir"].iloc[-1]) if not df.empty else 0.0,
+        "modal_awal": modal_awal,
+        "kas_terendah": kas_terendah,                 # posisi kas paling rendah
+        "kas_habis": bool(kas_terendah < -1e-6),      # True = modal tak cukup
+        "saldo_akhir": float(df["saldo_akhir"].iloc[-1]) if not df.empty else modal_awal,
     }

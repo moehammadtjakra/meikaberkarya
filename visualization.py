@@ -185,6 +185,101 @@ def fig_cash_journey(tl: pd.DataFrame, summary: dict) -> go.Figure:
     return _base_layout(fig, "Perjalanan Kas: Keluar vs Masuk (area merah = modal ditalangi)", 440)
 
 
+def fig_cash_position(tl: pd.DataFrame, summary: dict) -> go.Figure:
+    """
+    POSISI KAS RIIL harian = Modal Awal + akumulasi arus kas.
+    Mulai dari modal awal (garis putus abu). Area di bawah 0 = kas habis (modal
+    kurang). Marker hari ke-30/60/90. Titik terendah dianotasi.
+    """
+    x = tl["tanggal"]
+    y = tl["kas_riil"]
+    modal = float(summary.get("modal_awal", 0) or 0)
+    start = tl["tanggal"].iloc[0]
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=x, y=y, name="Posisi Kas (Modal + Arus Kas)", mode="lines",
+        fill="tozeroy", line=dict(color=T["blue"], width=2.6),
+        fillcolor="rgba(59,130,246,0.10)",
+        customdata=tl["net_cashflow"],
+        hovertemplate="%{x|%a %d %b %Y}<br>Kas: %{y:,.0f}"
+                      "<br>Arus hari ini: %{customdata:,.0f}<extra></extra>"))
+    # garis modal awal (acuan) & garis nol (batas kas habis)
+    if modal:
+        fig.add_hline(y=modal, line=dict(color=T["muted"], dash="dot", width=1),
+                      annotation_text=f"Modal Awal {_rp(modal)}",
+                      annotation_position="top left",
+                      annotation_font=dict(color=T["muted"], size=10))
+    fig.add_hline(y=0, line=dict(color=T["red"], dash="dot", width=1))
+    # marker posisi hari ke-30/60/90
+    for day in (30, 60, 90):
+        dt = start + pd.Timedelta(days=day)
+        r = tl.loc[tl["tanggal"] == dt, "kas_riil"]
+        if not r.empty:
+            fig.add_trace(go.Scatter(
+                x=[dt], y=[float(r.iloc[0])], mode="markers+text",
+                marker=dict(color=T["green"], size=9,
+                            line=dict(color="white", width=1)),
+                text=[f"H+{day}: {_rp(r.iloc[0])}"], textposition="top center",
+                textfont=dict(size=10, color=T["text"]), showlegend=False,
+                hoverinfo="skip"))
+    # titik terendah
+    imin = int(y.idxmin())
+    fig.add_annotation(x=tl["tanggal"].iloc[imin], y=float(y.iloc[imin]),
+                       text=f"Terendah {_rp(y.iloc[imin])}", showarrow=True,
+                       arrowcolor=T["amber"], ax=0, ay=30,
+                       font=dict(color=T["amber"], size=10))
+    # hari kas habis (jika modal kurang)
+    kh = summary.get("hari_kas_habis")
+    if kh is not None:
+        fig.add_vline(x=start + pd.Timedelta(days=int(kh)),
+                      line=dict(color=T["red"], dash="dash", width=2),
+                      annotation_text=f"⚠️ Kas habis H+{kh}",
+                      annotation_position="bottom right",
+                      annotation_font=dict(color=T["red"], size=10))
+    title = ("Posisi Kas Harian (mulai dari Modal Awal)"
+             if summary.get("modal_cukup", True)
+             else "Posisi Kas Harian — ⚠️ MODAL KURANG (kas sempat minus)")
+    return _base_layout(fig, title, 440)
+
+
+def fig_compare_saldo(dates, saldo_global, saldo_daily, modal: float = 0.0) -> go.Figure:
+    """Bandingkan posisi kas: skema Global vs skema Penyesuaian Harian (dalam horizon)."""
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=dates, y=saldo_global, name="Skema Global", mode="lines",
+                             line=dict(color=T["blue"], width=2.6),
+                             hovertemplate="%{x|%d %b}<br>Global: %{y:,.0f}<extra></extra>"))
+    fig.add_trace(go.Scatter(x=dates, y=saldo_daily, name="Skema Harian (disesuaikan)",
+                             mode="lines", line=dict(color=T["amber"], width=2.6, dash="dash"),
+                             hovertemplate="%{x|%d %b}<br>Harian: %{y:,.0f}<extra></extra>"))
+    if modal:
+        fig.add_hline(y=modal, line=dict(color=T["muted"], dash="dot", width=1),
+                      annotation_text=f"Modal {_rp(modal)}",
+                      annotation_position="top left", annotation_font=dict(color=T["muted"], size=10))
+    fig.add_hline(y=0, line=dict(color=T["red"], dash="dot", width=1))
+    fig.update_layout(hovermode="x unified")
+    return _base_layout(fig, "Perbandingan Posisi Kas: Global vs Penyesuaian Harian", 380)
+
+
+def fig_monthly_pnl(mdf: pd.DataFrame) -> go.Figure:
+    """Bar laba bersih (akrual) per bulan + garis laba kumulatif & saldo kas akhir."""
+    if mdf is None or mdf.empty:
+        return _base_layout(go.Figure(), "P&L Bulanan", 340)
+    x = mdf["label"]
+    colors = [T["green"] if v >= 0 else T["red"] for v in mdf["laba_bersih"]]
+    fig = go.Figure()
+    fig.add_bar(x=x, y=mdf["laba_bersih"], name="Laba Bersih Bulanan (akrual)",
+                marker_color=colors,
+                hovertemplate="%{x}<br>Laba: %{y:,.0f}<extra></extra>")
+    fig.add_trace(go.Scatter(x=x, y=mdf["laba_kumulatif"], name="Laba Kumulatif",
+                             mode="lines+markers", line=dict(color=T["blue"], width=2)))
+    fig.add_trace(go.Scatter(x=x, y=mdf["saldo_kas_akhir"], name="Saldo Kas Akhir Bulan",
+                             mode="lines+markers",
+                             line=dict(color=T["green_soft"], width=2, dash="dash")))
+    fig.add_hline(y=0, line=dict(color=T["muted"], dash="dot", width=1))
+    fig.update_layout(hovermode="x unified")
+    return _base_layout(fig, "P&L Bulanan: Laba (akrual) & Saldo Kas per Akhir Bulan", 360)
+
+
 def fig_daily_omzet(tl: pd.DataFrame) -> go.Figure:
     """Proyeksi omzet/kas masuk harian, dipisah sumber: COD (cair) vs Transfer."""
     fig = go.Figure()

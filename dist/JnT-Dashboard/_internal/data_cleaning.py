@@ -70,11 +70,23 @@ def clean_all_resi(df_raw: pd.DataFrame) -> pd.DataFrame:
     df["is_sampai"] = df.get("status_ttd").eq(config.STATUS_SAMPAI) if "status_ttd" in df else False
     df["is_cod"] = df.get("tipe_cod").eq(config.TIPE_COD) if "tipe_cod" in df else True
     df["is_recon"] = df.get("rekon").eq(config.REKON_DONE) if "rekon" in df else False
+    # RETUR / bermasalah: status "Belum Diterima" TAPI sudah ada tanggal Waktu Terima
+    # (ada upaya antar tapi tidak diterima → dikembalikan). Berbeda dari "masih transit".
+    if {"status_ttd", "waktu_terima"}.issubset(df.columns):
+        df["is_retur"] = df["status_ttd"].eq(config.STATUS_BELUM) & df["waktu_terima"].notna()
+        df["in_transit"] = df["status_ttd"].eq(config.STATUS_BELUM) & df["waktu_terima"].isna()
+    else:
+        df["is_retur"] = False
+        df["in_transit"] = False
 
-    # durasi: bila kosong tapi ada kedua tanggal, hitung selisih
-    if "durasi_kirim" in df and {"tgl_kirim", "waktu_terima"}.issubset(df.columns):
+    # durasi kirim: bila kolom tidak ada / kosong, hitung dari (waktu_terima − tgl_kirim).
+    # Penting untuk sumber GSheet yang tidak menyimpan kolom turunan "Durasi Kirim".
+    if {"tgl_kirim", "waktu_terima"}.issubset(df.columns):
         calc = (df["waktu_terima"] - df["tgl_kirim"]).dt.days
-        df["durasi_kirim"] = df["durasi_kirim"].fillna(calc)
+        df["durasi_kirim"] = (df["durasi_kirim"].fillna(calc)
+                              if "durasi_kirim" in df else calc)
+    if "durasi_kirim" not in df.columns:
+        df["durasi_kirim"] = np.nan
     df.loc[df["durasi_kirim"] < 0, "durasi_kirim"] = np.nan
 
     # hari (nama) kirim & terima
@@ -83,9 +95,13 @@ def clean_all_resi(df_raw: pd.DataFrame) -> pd.DataFrame:
     if "waktu_terima" in df:
         df["hari_terima"] = df["waktu_terima"].dt.weekday.map(HARI_ID)
 
-    # proyeksi net fallback
-    if "proyeksi_net" not in df or df["proyeksi_net"].isna().all():
-        df["proyeksi_net"] = df.get("nilai_produk", 0)
+    # Proyeksi Net: bila kolom belum ada (data GSheet tanpa kolom turunan),
+    # hitung dgn rumus tervalidasi = Nilai Produk + Biaya Diskon (cashback) − COD Fee.
+    if "proyeksi_net" not in df.columns or df["proyeksi_net"].isna().all():
+        _np = pd.to_numeric(df["nilai_produk"], errors="coerce").fillna(0) if "nilai_produk" in df else 0
+        _bd = pd.to_numeric(df["biaya_diskon"], errors="coerce").fillna(0) if "biaya_diskon" in df else 0
+        _cf = pd.to_numeric(df["cod_fee"], errors="coerce").fillna(0) if "cod_fee" in df else 0
+        df["proyeksi_net"] = _np + _bd - _cf
 
     return df
 

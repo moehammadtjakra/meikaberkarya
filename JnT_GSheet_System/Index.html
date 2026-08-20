@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <style>
+    :root { --jt:#d4111e; --jt-dark:#a50d17; --ink:#1f2933; --muted:#6b7280;
+            --bg:#f5f6f8; --card:#ffffff; --line:#e5e7eb; --ok:#0f9d58; }
+    * { box-sizing:border-box; }
+    body { font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+           margin:0; background:var(--bg); color:var(--ink); }
+    .wrap { max-width:1080px; margin:0 auto; padding:24px 16px 48px; }
+    header { display:flex; align-items:center; gap:12px; margin-bottom:6px; }
+    .logo { background:var(--jt); color:#fff; font-weight:800; letter-spacing:.5px;
+            padding:6px 10px; border-radius:8px; font-size:15px; }
+    h1 { font-size:19px; margin:0; }
+    .sub { color:var(--muted); font-size:13px; margin:2px 0 18px; }
+    .nav { display:flex; gap:8px; margin-bottom:18px; border-bottom:1px solid var(--line); }
+    .nav button { background:none; border:0; padding:10px 14px; font-size:14px; font-weight:600;
+                  color:var(--muted); cursor:pointer; border-bottom:2.5px solid transparent; }
+    .nav button.active { color:var(--jt); border-bottom-color:var(--jt); }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:14px;
+            padding:18px; margin-bottom:16px; }
+    .card h2 { font-size:15px; margin:0 0 4px; }
+    .card p.d { color:var(--muted); font-size:12.5px; margin:0 0 14px; }
+    .drop { border:1.5px dashed #cbd2da; border-radius:10px; padding:16px; text-align:center;
+            font-size:13px; color:var(--muted); cursor:pointer; transition:.15s; background:#fafbfc;
+            display:block; }
+    .drop:hover, .drop.over { border-color:var(--jt); background:#fff5f5; color:var(--ink); }
+    input[type=file] { display:none; }
+    .files { margin-top:10px; }
+    .f { display:flex; align-items:center; gap:8px; font-size:12.5px; padding:6px 9px;
+         border:1px solid var(--line); border-radius:8px; margin-bottom:6px; background:#fff; }
+    .f b { flex:1; font-weight:600; word-break:break-all; }
+    .f .x { background:none; color:var(--jt); border:0; cursor:pointer; font-size:14px; padding:0 3px; }
+    .row { display:flex; gap:10px; margin-top:12px; align-items:center; }
+    button.go { background:var(--jt); color:#fff; border:0; border-radius:9px; padding:11px 18px;
+                font-size:14px; font-weight:600; cursor:pointer; }
+    button.go:hover { background:var(--jt-dark); }
+    button.go:disabled { background:#c7ccd1; cursor:not-allowed; }
+    button.ghost { background:#fff; color:var(--ink); border:1px solid var(--line); border-radius:9px;
+                   padding:9px 13px; font-size:12.5px; font-weight:600; cursor:pointer; }
+    .msg { font-size:13px; margin-top:12px; padding:10px 12px; border-radius:9px; display:none; }
+    .msg.ok  { display:block; background:#e7f6ee; color:#0b6b3a; border:1px solid #b7e4c9; }
+    .msg.err { display:block; background:#fdeaea; color:#9a1420; border:1px solid #f4c2c5; }
+    .msg.info{ display:block; background:#eef2f7; color:#334; border:1px solid #d7dee7; }
+    .spin { width:15px; height:15px; border:2.5px solid #fff; border-top-color:transparent;
+            border-radius:50%; display:inline-block; vertical-align:-2px; margin-right:6px;
+            animation:sp .7s linear infinite; }
+    @keyframes sp { to { transform:rotate(360deg); } }
+    /* dashboard */
+    .kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:12px; }
+    .kpi { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; }
+    .kpi span { font-size:12px; color:var(--muted); }
+    .kpi b { display:block; font-size:21px; margin-top:2px; }
+    .kpi i { display:block; font-style:normal; font-size:12px; color:var(--muted); margin-top:3px; }
+    .kpi.warn b { color:var(--jt); } .kpi.good b { color:var(--ok); }
+    .kpis.five { grid-template-columns:repeat(5,1fr); }
+    .tbl { width:100%; border-collapse:collapse; font-size:12.5px; }
+    .tbl th,.tbl td { padding:7px 9px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }
+    .tbl th:first-child,.tbl td:first-child { text-align:left; }
+    .tbl th { color:var(--muted); font-weight:600; }
+    .tbl th.s { cursor:pointer; user-select:none; }
+    .tbl th.s:hover { color:var(--jt); }
+    .tbl tbody tr:hover { background:#fafbfc; }
+    .tbl tfoot td { font-weight:700; border-top:2px solid var(--line); }
+    .scrollx { overflow-x:auto; }
+    .scrollbox { max-height:340px; overflow:auto; border:1px solid var(--line); border-radius:10px; }
+    .scrollbox table { margin:0; }
+    .scrollbox thead th { position:sticky; top:0; background:var(--card); z-index:2;
+                          box-shadow:inset 0 -1px 0 var(--line); }
+    .scrollbox tfoot td { position:sticky; bottom:0; background:#fbfcfd; z-index:2;
+                          box-shadow:inset 0 1px 0 var(--line); }
+    .prog { background:var(--card); border:1px solid var(--line); border-radius:12px;
+            padding:12px 14px; margin-bottom:14px; }
+    .progtop { display:flex; justify-content:space-between; font-size:12.5px; color:var(--muted); margin-bottom:7px; }
+    .progtop b { color:var(--jt); font-size:13px; }
+    .progtrack { height:8px; background:#eef2f7; border-radius:6px; overflow:hidden; }
+    .progbar { height:100%; width:0; background:var(--jt); border-radius:6px; transition:width .25s ease; }
+    td.load { color:var(--muted); text-align:center !important; padding:20px 10px !important; font-size:13px; }
+    td.load b { color:var(--jt); }
+    .tag { display:inline-block; font-size:11px; padding:2px 7px; border-radius:20px;
+           background:#eef2f7; color:#334; }
+    .tag.ok { background:#e7f6ee; color:#0b6b3a; }
+    .tag.no { background:#fdeaea; color:#9a1420; }
+    .tag.wt { background:#fff5e6; color:#8a5a00; }
+    .mt { font-size:15px; font-weight:700; margin:22px 0 10px; }
+    .foot { text-align:center; color:var(--muted); font-size:11.5px; margin-top:8px; }
+    details { font-size:12.5px; color:var(--muted); margin-top:10px; }
+    summary { cursor:pointer; }
+    @media(max-width:820px){ .kpis,.kpis.five{grid-template-columns:repeat(2,1fr);} }
+    /* banner versi baru */
+    .verbar{display:none;position:sticky;top:0;z-index:99;background:#1f2933;color:#fff;
+            padding:9px 14px;font-size:13px;align-items:center;justify-content:space-between;gap:12px;}
+    .verbar.show{display:flex;}
+    .verbar i{font-style:normal;opacity:.75;margin-left:6px;font-size:12px;}
+    .verbtn{background:#fff;color:#1f2933;border:0;border-radius:7px;padding:6px 12px;
+            font-size:12.5px;font-weight:700;cursor:pointer;}
+    .verx{background:none;border:0;color:#fff;opacity:.6;cursor:pointer;font-size:14px;padding:0 4px;}
+    .verx:hover{opacity:1;}
+    .vernow{font-size:11px;color:var(--muted);margin-left:6px;}
+    .kpibtn{margin-top:8px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:5px 10px;
+      font-size:12px;font-weight:600;color:var(--jt);cursor:pointer;}
+    .kpibtn:hover{border-color:var(--jt);}
+    .ovl{display:none;position:fixed;inset:0;background:rgba(20,20,25,.5);z-index:200;
+      align-items:flex-start;justify-content:center;overflow:auto;padding:28px 14px;}
+    .ovl.show{display:flex;}
+    .modalbox{background:#fff;border-radius:14px;width:100%;max-width:1050px;box-shadow:0 16px 48px rgba(0,0,0,.28);
+      display:flex;flex-direction:column;overflow:hidden;}
+    .modalhd{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;
+      padding:14px 18px;border-bottom:1px solid var(--line);}
+    .modalhd b{font-size:16px;}
+    .modalbd{padding:14px 18px;}
+    @media(max-width:640px){ .modalhd{flex-direction:column;align-items:stretch;} }
+  </style>
+</head>
+<body>
+  <div id="verBar" class="verbar">
+    <span>🔄 <b>Versi baru tersedia</b> — halaman ini masih memakai versi lama.
+      <i id="verInfo"></i></span>
+    <span>
+      <button class="verbtn" onclick="reloadApp()">Muat ulang sekarang</button>
+      <button class="verx" onclick="tundaVersi()" title="Tunda 10 menit">✕</button>
+    </span>
+  </div>
+  <div class="wrap">
+    <header>
+      <div class="logo">J&amp;T</div>
+      <h1>Data Loader — Meika Berkarya</h1>
+      <span class="vernow" id="verNow">…</span>
+    </header>
+    <div class="sub" id="ssName">Memuat…</div>
+
+    <div class="nav">
+      <button id="navUp" class="active" onclick="tab('up')">Upload Data</button>
+      <button id="navDash" onclick="tab('dash')">Dashboard</button>
+      <button id="navCair" onclick="tab('cair')">Pencairan J&amp;T</button>
+    </div>
+
+    <!-- ================= UPLOAD ================= -->
+    <div id="vUp">
+      <div class="card">
+        <h2>1 · All Resi <span class="tag" id="cAll">…</span></h2>
+        <p class="d">Boleh pilih <b>beberapa file sekaligus</b> (mis. Resi Mei, Juni, Juli).
+          Semua diproses dalam satu kali submit dan di-upsert per No. Waybill.</p>
+        <label class="drop" id="dropAll">
+          <span class="txt">Klik untuk pilih file (bisa banyak), atau tarik ke sini</span>
+          <input type="file" id="fileAll" accept=".xlsx,.xls" multiple>
+        </label>
+        <div class="files" id="lsAll"></div>
+        <div class="row">
+          <button class="go" id="btnAll" disabled onclick="send('allResi')">Proses &amp; Update</button>
+          <button class="ghost" onclick="clearFiles('allResi')">Kosongkan</button>
+        </div>
+        <div class="msg" id="msgAll"></div>
+        <div class="mt" style="font-size:13px;">Riwayat Upload — All Resi</div>
+        <div class="scrollbox"><table class="tbl" id="rwAll"></table></div>
+      </div>
+
+      <div class="card">
+        <h2>2 · Settle Reconcile <span class="tag" id="cRec">…</span></h2>
+        <p class="d">File rekonsiliasi COD mingguan. Bisa <b>beberapa file sekaligus</b>.
+          Tabel di bawah mencatat <b>rentang Waktu TTD</b> tiap file, kapan diupload, dan berapa resinya.</p>
+        <label class="drop" id="dropRec">
+          <span class="txt">Klik untuk pilih file (bisa banyak), atau tarik ke sini</span>
+          <input type="file" id="fileRec" accept=".xlsx,.xls" multiple>
+        </label>
+        <div class="files" id="lsRec"></div>
+        <div class="row">
+          <button class="go" id="btnRec" disabled onclick="send('reconcile')">Proses &amp; Update</button>
+          <button class="ghost" onclick="clearFiles('reconcile')">Kosongkan</button>
+        </div>
+        <div class="msg" id="msgRec"></div>
+        <div class="mt" style="font-size:13px;">Riwayat Upload — Settle Reconcile</div>
+        <div class="scrollbox"><table class="tbl" id="rwRec"></table></div>
+      </div>
+
+      <div class="foot">Upsert by No. Waybill · file yang diupload ulang memperbarui baris yang sama, bukan menduplikasi.</div>
+    </div>
+
+    <!-- ================= DASHBOARD ================= -->
+    <div id="vDash" style="display:none;">
+      <div id="dashProg" class="prog" style="display:none;">
+        <div class="progtop"><span>Memuat dashboard…</span><b id="dashPct">0%</b></div>
+        <div class="progtrack"><div class="progbar" id="dashBar"></div></div>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><span>Total resi dikirim</span><b id="kKirim">…</b><i id="kKirimI"></i></div>
+        <div class="kpi good"><span>Sampai tujuan</span><b id="kSampai">…</b><i id="kNetSampai"></i></div>
+        <div class="kpi warn"><span>Bermasalah / retur</span><b id="kMasalah">…</b><i id="kMasalahI"></i></div>
+        <div class="kpi"><span>Masih dalam pengiriman</span><b id="kProses">…</b><i id="kNetProses"></i></div>
+      </div>
+      <div class="kpis five">
+        <div class="kpi"><span>Resi COD</span><b id="kCod">…</b><i id="kCodI"></i></div>
+        <div class="kpi"><span>Rata-rata durasi kirim</span><b id="kDurasi">…</b><i>hari, paket yang sudah sampai</i></div>
+        <div class="kpi"><span>Sudah masuk Settle Reconcile</span><b id="kSettle">…</b><i id="kSettleI"></i></div>
+        <div class="kpi warn"><span>Sampai tapi BELUM di reconcile</span><b id="kBelum">…</b><i id="kBelumI"></i>
+          <button class="kpibtn" onclick="previewBelum()">👁 Preview &amp; Export</button></div>
+        <div class="kpi"><span>Pencairan berikutnya</span><b id="kNext">…</b><i id="kNextI"></i></div>
+      </div>
+
+      <div class="mt">Report per Bulan Pengiriman</div>
+      <div class="card">
+        <div class="scrollbox"><table class="tbl" id="tBulan"></table></div>
+      </div>
+
+      <div class="mt">Report per Provinsi</div>
+      <div class="card">
+        <p class="d">Klik judul kolom untuk mengurutkan. <b>Net omzet</b> = Nilai COD − COD Fee −
+          Total Biaya Setelah Diskon, dihitung dari resi yang <b>sudah sampai</b>.</p>
+        <div class="scrollbox"><table class="tbl" id="tProv"></table></div>
+      </div>
+
+      <details id="kal">
+        <summary>Kalibrasi status — nilai unik kolom "Tanda TTD" yang ditemukan sistem</summary>
+        <div class="card" style="margin-top:8px;">
+          <p class="d">Pastikan klasifikasi di bawah benar. Kalau ada nilai yang salah dibaca,
+            beri tahu saya — cukup daftarkan di <code>DASH.ttdSampai</code> pada <code>Dashboard.gs</code>.</p>
+          <div class="scrollbox"><table class="tbl" id="tKal"></table></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Integritas data — cek duplikat No. Waybill</summary>
+        <div class="card" style="margin-top:8px;">
+          <p class="d">No. Waybill adalah kunci tunggal. Sistem membersihkan duplikat otomatis setiap
+            kali upload; tombol ini untuk memastikan sendiri kapan saja.</p>
+          <button class="ghost" onclick="cekDup()">Periksa sekarang</button>
+          <div id="dupHasil" style="margin-top:10px;"></div>
+        </div>
+      </details>
+      <div class="msg" id="msgD"></div>
+    </div>
+
+    <!-- ================= PENCAIRAN ================= -->
+    <div id="vCair" style="display:none;">
+      <div class="card" style="margin-bottom:0;padding-bottom:6px;">
+        <p class="d" style="margin:0;">Data pencairan memakai tabel yang sama dengan tab Dashboard.
+          Bila masih dimuat, progress-nya tampil di sana.</p>
+      </div>
+      <div class="card">
+        <h2>Jadwal Pencairan J&amp;T</h2>
+        <p class="d">
+          Paket sampai <b>Rabu/Kamis</b> → cair <b>Senin</b> · sampai <b>Jumat/Sabtu/Minggu</b> → cair
+          <b>Selasa</b> · sampai <b>Senin/Selasa</b> → cair <b>Kamis</b>.<br>
+          <b>Terkonfirmasi</b> = resi yang sudah muncul di Settle Reconcile (acuan: Waktu TTD).
+          <b>Proyeksi</b> = resi yang di All Resi sudah sampai tapi <b>belum</b> ada di Settle Reconcile
+          (acuan: Waktu Terima) — inilah perkiraan uang yang masih akan cair.
+        </p>
+        <div class="scrollbox"><table class="tbl" id="tCair"></table></div>
+      </div>
+      <div class="msg" id="msgC"></div>
+    </div>
+  </div>
+
+  <!-- ============ MODAL: Sampai tapi belum reconcile ============ -->
+  <div class="ovl" id="ovBelum">
+    <div class="modalbox">
+      <div class="modalhd">
+        <div>
+          <b>Sampai tapi BELUM di reconcile</b>
+          <div class="d" id="belumSub" style="margin-top:2px;">memuat…</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="primary" id="btnBelumXls" onclick="downloadBelum()">⤓ Download Excel</button>
+          <button class="ghost" onclick="tutupBelum()">Tutup</button>
+        </div>
+      </div>
+      <div class="modalbd">
+        <div class="scrollbox" style="max-height:64vh;"><table class="tbl" id="tBelum"></table></div>
+      </div>
+      <div class="msg" id="msgBelum"></div>
+    </div>
+  </div>
+
+<script>
+  // ================= DETEKSI DEPLOYMENT BARU =================
+  // Halaman yang sedang dibuka tidak tahu kalau kodenya sudah diganti. Jadi versi
+  // yang dipegang halaman ini dibandingkan berkala dengan versi di server; kalau
+  // beda -> banner muncul dan user cukup klik untuk memuat versi terbaru. Tidak
+  // perlu hapus cache manual.
+  var VERSI_AWAL=null, VERSI_TUNDA=0;
+  function cekVersi(){
+    if(!VERSI_AWAL || Date.now()<VERSI_TUNDA) return;
+    google.script.run.withSuccessHandler(function(v){
+      if(!v || v===VERSI_AWAL) return;
+      document.getElementById('verInfo').textContent='('+VERSI_AWAL+' → '+v+')';
+      document.getElementById('verBar').classList.add('show');
+    }).withFailureHandler(function(){}).getVersi();
+  }
+  function tundaVersi(){
+    VERSI_TUNDA=Date.now()+10*60*1000;
+    document.getElementById('verBar').classList.remove('show');
+  }
+  /** Halaman Apps Script ada di dalam iframe — yang dipindah harus jendela ATAS,
+      dan browser hanya mengizinkannya bila dipicu klik user (makanya ini tombol).
+      Menambah ?v=<timestamp> agar benar-benar melewati cache browser. */
+  function reloadApp(){
+    var b=document.querySelector('.verbtn'); if(b){ b.disabled=true; b.textContent='Memuat…'; }
+    google.script.run.withSuccessHandler(function(u){
+      var url=(u||'')+(u&&u.indexOf('?')<0?'?':'&')+'v='+Date.now();
+      try{ if(u){ window.top.location.href=url; return; } }catch(e){}
+      window.location.reload();
+    }).withFailureHandler(function(){ window.location.reload(); }).getWebAppUrl();
+  }
+  setInterval(cekVersi, 90000);
+  document.addEventListener('visibilitychange', function(){ if(!document.hidden) cekVersi(); });
+  google.script.run.withSuccessHandler(function(v){
+    VERSI_AWAL=v; var e=document.getElementById('verNow'); if(e) e.textContent=v;
+  }).withFailureHandler(function(){}).getVersi();
+
+  var SLOT = {
+    allResi:   { files:[], input:'fileAll', btn:'btnAll', msg:'msgAll', drop:'dropAll', list:'lsAll', rw:'rwAll' },
+    reconcile: { files:[], input:'fileRec', btn:'btnRec', msg:'msgRec', drop:'dropRec', list:'lsRec', rw:'rwRec' }
+  };
+  var DASH={}, DASH_LOADED=false, SORT={k:'total', asc:false};
+
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  function nf(v){ var x=Number(v); return isNaN(x)?'0':x.toLocaleString('id-ID'); }
+  function rp(v){ var x=Math.round(Number(v)||0); return (x<0?'−Rp ':'Rp ')+nf(Math.abs(x)); }
+  function show(id,c,h){ var e=document.getElementById(id); e.className='msg '+c; e.innerHTML=h; }
+  function hide(id){ document.getElementById(id).className='msg'; }
+
+  function tab(v){
+    document.getElementById('vUp').style.display   = v==='up'?'block':'none';
+    document.getElementById('vDash').style.display = v==='dash'?'block':'none';
+    document.getElementById('vCair').style.display = v==='cair'?'block':'none';
+    document.getElementById('navUp').classList.toggle('active', v==='up');
+    document.getElementById('navDash').classList.toggle('active', v==='dash');
+    document.getElementById('navCair').classList.toggle('active', v==='cair');
+    if((v==='dash'||v==='cair') && !DASH_LOADED) loadDash();
+  }
+
+  // ---------- status awal ----------
+  google.script.run.withSuccessHandler(function(s){
+    document.getElementById('ssName').textContent='Spreadsheet: '+s.spreadsheetName;
+    document.getElementById('cAll').textContent=nf(s.allResi)+' baris';
+    document.getElementById('cRec').textContent=nf(s.reconcile)+' baris';
+  }).withFailureHandler(function(){
+    document.getElementById('ssName').textContent='(cek izin spreadsheet)';
+  }).getStatus();
+  loadRiwayat('allResi'); loadRiwayat('reconcile');
+
+  // ---------- pilih file (MULTI) ----------
+  Object.keys(SLOT).forEach(function(key){
+    var s=SLOT[key];
+    var input=document.getElementById(s.input), drop=document.getElementById(s.drop);
+    input.addEventListener('change', function(){ addFiles(key, input.files); input.value=''; });
+    drop.addEventListener('dragover', function(e){ e.preventDefault(); drop.classList.add('over'); });
+    drop.addEventListener('dragleave',function(){ drop.classList.remove('over'); });
+    drop.addEventListener('drop', function(e){
+      e.preventDefault(); drop.classList.remove('over');
+      if(e.dataTransfer.files.length) addFiles(key, e.dataTransfer.files);
+    });
+  });
+  function addFiles(key, fl){
+    var s=SLOT[key];
+    for(var i=0;i<fl.length;i++){
+      var f=fl[i];
+      var dup=s.files.some(function(x){return x.name===f.name && x.size===f.size;});
+      if(!dup) s.files.push(f);
+    }
+    drawFiles(key); hide(s.msg);
+  }
+  function delFile(key,i){ SLOT[key].files.splice(i,1); drawFiles(key); }
+  function clearFiles(key){ SLOT[key].files=[]; drawFiles(key); hide(SLOT[key].msg); }
+  function drawFiles(key){
+    var s=SLOT[key];
+    document.getElementById(s.list).innerHTML = s.files.map(function(f,i){
+      return '<div class="f"><b>'+esc(f.name)+'</b>'+
+        '<span style="color:var(--muted)">'+Math.round(f.size/1024)+' KB</span>'+
+        '<button class="x" onclick="delFile(\''+key+'\','+i+')" title="hapus">✕</button></div>';
+    }).join('');
+    document.getElementById(s.btn).disabled = !s.files.length;
+    document.getElementById(s.btn).textContent = s.files.length>1
+      ? 'Proses '+s.files.length+' File' : 'Proses & Update';
+  }
+
+  // ---------- kirim semua file sekaligus ----------
+  function send(key){
+    var s=SLOT[key];
+    if(!s.files.length) return;
+    document.getElementById(s.btn).disabled=true;
+    show(s.msg,'info','<span class="spin"></span>Membaca '+s.files.length+' file…');
+
+    bacaSemua(s.files, function(payload){
+      show(s.msg,'info','<span class="spin"></span>Memproses '+payload.length+
+        ' file di server… (jangan tutup halaman)');
+      google.script.run.withSuccessHandler(function(r){ selesai(key,r); })
+        .withFailureHandler(function(e){
+          document.getElementById(s.btn).disabled=false;
+          show(s.msg,'err','✕ '+(e&&e.message?e.message:'Gagal.'));
+        }).processUploadFiles(payload, key);
+    });
+  }
+  /** baca semua file jadi base64 secara berurutan */
+  function bacaSemua(files, cb){
+    var out=[], i=0;
+    (function next(){
+      if(i>=files.length){ cb(out); return; }
+      var f=files[i++], rd=new FileReader();
+      rd.onload=function(){ out.push({b64:rd.result.split(',')[1], name:f.name}); next(); };
+      rd.onerror=function(){ next(); };
+      rd.readAsDataURL(f);
+    })();
+  }
+  function selesai(key,r){
+    var s=SLOT[key];
+    var det = r.perFile.map(function(f){
+      return '<div style="margin-top:4px;">• <b>'+esc(f.name)+'</b> — '+nf(f.jumlah)+' resi'+
+        (f.awal?' ('+esc(f.awal)+' → '+esc(f.akhir)+')':'')+
+        ' · baru '+nf(f.added)+' · update '+nf(f.updated)+
+        (f.dupDalamFile?' · <b>'+nf(f.dupDalamFile)+'</b> waybill kembar di file ini (digabung)':'')+
+        (f.dilewati?' · '+nf(f.dilewati)+' baris tanpa waybill dilewati':'')+'</div>';
+    }).join('');
+    var bersih = (r.dupLamaDibersihkan||r.kosongLamaDibuang)
+      ? '<div style="margin-top:6px;">🧹 Sheet dirapikan: '+
+        (r.dupLamaDibersihkan?'<b>'+nf(r.dupLamaDibersihkan)+'</b> waybill kembar lama dibuang':'')+
+        (r.dupLamaDibersihkan&&r.kosongLamaDibuang?' · ':'')+
+        (r.kosongLamaDibuang?'<b>'+nf(r.kosongLamaDibuang)+'</b> baris tanpa waybill dibuang':'')+
+        '</div>' : '';
+    var gagal = r.gagal.length
+      ? '<div style="margin-top:6px;color:#9a1420;">Gagal: '+r.gagal.map(function(g){
+          return esc(g.name)+' — '+esc(g.pesan); }).join('; ')+'</div>' : '';
+    show(s.msg, r.gagal.length?'info':'ok',
+      '✔ <b>'+esc(r.sheetName)+'</b> diperbarui dari <b>'+r.jumlahFile+'</b> file · '+
+      'baru <b>'+nf(r.added)+'</b> · update <b>'+nf(r.updated)+'</b> · total <b>'+nf(r.total)+'</b>'+
+      det+bersih+gagal);
+    SLOT[key].files=[]; drawFiles(key);
+    DASH_LOADED=false;                           // paksa dashboard dihitung ulang
+    google.script.run.withSuccessHandler(function(st){
+      document.getElementById('cAll').textContent=nf(st.allResi)+' baris';
+      document.getElementById('cRec').textContent=nf(st.reconcile)+' baris';
+    }).getStatus();
+    loadRiwayat(key);
+  }
+
+  // ---------- riwayat upload ----------
+  function loadRiwayat(key){
+    google.script.run.withSuccessHandler(function(list){
+      var el=document.getElementById(SLOT[key].rw);
+      if(!list.length){ el.innerHTML='<tbody><tr><td style="color:var(--muted);">Belum ada riwayat upload.</td></tr></tbody>'; return; }
+      // urutkan rentang tanggal dari paling baru ke paling lama (yang tanpa tanggal ditaruh bawah)
+      list.sort(function(a,b){
+        var xa=a.akhir||a.awal||'', xb=b.akhir||b.awal||'';
+        if(!xa&&!xb) return 0; if(!xa) return 1; if(!xb) return -1;
+        return xa<xb?1:(xa>xb?-1:0);
+      });
+      el.innerHTML='<thead><tr><th>Nama File</th><th>Rentang '+
+        (key==='reconcile'?'Waktu TTD':'Tanggal Pengiriman')+'</th>'+
+        '<th>Total Resi</th><th>Baru</th><th>Diupload</th></tr></thead><tbody>'+
+        list.map(function(x){
+          return '<tr><td>'+esc(x.file)+'</td>'+
+            '<td>'+(x.awal? esc(x.awal)+' → '+esc(x.akhir) : '<span style="color:var(--muted)">—</span>')+'</td>'+
+            '<td>'+nf(x.jumlah)+'</td><td>'+nf(x.added)+'</td>'+
+            '<td>'+esc(x.waktu)+'</td></tr>';
+        }).join('')+'</tbody>';
+    }).getRiwayat(key);
+  }
+
+  // ---------- dashboard ----------
+  // ---------- mesin progress ----------
+  var PG={val:0,cap:0,timer:null};
+  function pgStart(){ PG.val=0; PG.cap=48; pgShow(true);
+    if(PG.timer) clearInterval(PG.timer);
+    PG.timer=setInterval(pgStep,110); pgPaint(); }
+  function pgStep(){ if(PG.val<PG.cap){ PG.val+=Math.max(0.6,(PG.cap-PG.val)*0.09);
+    if(PG.val>PG.cap)PG.val=PG.cap; pgPaint(); } }
+  function pgCap(c){ PG.cap=c; }
+  function pgDone(){ if(PG.timer){clearInterval(PG.timer);PG.timer=null;} PG.val=100; pgPaint();
+    setTimeout(function(){ pgShow(false); }, 400); }
+  function pgPaint(){ var p=Math.round(PG.val);
+    var bar=document.getElementById('dashBar'), pct=document.getElementById('dashPct');
+    if(bar) bar.style.width=p+'%'; if(pct) pct.textContent=p+'%';
+    var ls=document.getElementsByClassName('loadpct');
+    for(var i=0;i<ls.length;i++) ls[i].textContent=p+'%'; }
+  function pgShow(on){ var el=document.getElementById('dashProg'); if(el) el.style.display=on?'block':'none'; }
+  function ph(cols){ return '<tbody><tr><td colspan="'+cols+'" class="load">'+
+    '<span class="spin" style="border-color:#c9ccd1;border-top-color:transparent"></span> '+
+    'Memuat data… <b class="loadpct">0%</b></td></tr></tbody>'; }
+
+  function loadDash(){
+    DASH={}; DASH_LOADED=true;
+    hide('msgD'); hide('msgC');
+    // pasang placeholder di tiap section
+    document.getElementById('tBulan').innerHTML=ph(10);
+    document.getElementById('tProv').innerHTML=ph(10);
+    document.getElementById('tKal').innerHTML=ph(3);
+    document.getElementById('tCair').innerHTML=ph(8);
+    ['kSettle','kBelum','kNext'].forEach(function(id){ document.getElementById(id).innerHTML='<span class="tag">…</span>'; });
+    pgStart();
+
+    // (1) INTI — biasanya paling cepat, langsung tampil
+    google.script.run.withSuccessHandler(function(inti){
+      if(!inti.adaData){ pgDone(); DASH.adaData=false;
+        show('msgD','info','Belum ada data di sheet "All Resi".'); return; }
+      DASH.ringkas=inti.ringkas; DASH.provinsi=inti.provinsi; DASH.bulanan=inti.bulanan;
+      DASH.kalibrasi=inti.kalibrasi; DASH.adaData=true;
+      drawKpiInti(inti.ringkas); drawBulan(); drawProv(); drawKal(inti);
+      pgCap(92);
+    }).withFailureHandler(function(e){ pgDone();
+      show('msgD','err','✕ '+(e&&e.message?e.message:'Gagal memuat ringkasan.')); }).getDashInti();
+
+    // (2) SETTLE — silang dengan Settle Reconcile, tampil menyusul
+    google.script.run.withSuccessHandler(function(s){
+      DASH.ringkas=DASH.ringkas||{};
+      DASH.ringkas.sudahSettle=s.sudahSettle; DASH.ringkas.netSudahSettle=s.netSudahSettle;
+      DASH.ringkas.belumSettle=s.belumSettle; DASH.ringkas.netBelumSettle=s.netBelumSettle;
+      DASH.pencairan=s.pencairan; DASH.berikutnya=s.berikutnya;
+      drawKpiSettle(s); drawCair({pencairan:s.pencairan});
+      pgDone();
+    }).withFailureHandler(function(e){ pgDone();
+      document.getElementById('tCair').innerHTML='<tbody><tr><td style="color:#9a1420;">✕ '+
+        esc(e&&e.message?e.message:'Gagal memuat pencairan.')+'</td></tr></tbody>';
+      show('msgC','err','✕ '+(e&&e.message?e.message:'Gagal.')); }).getDashSettle();
+  }
+
+  function drawKpiInti(R){
+    document.getElementById('kKirim').textContent   = nf(R.dikirim);
+    document.getElementById('kKirimI').textContent  = 'lihat rincian per bulan di tabel bawah';
+    document.getElementById('kCod').innerHTML       = nf(R.cod)+' <span class="tag">'+R.pctCod+'%</span>';
+    document.getElementById('kCodI').textContent    = nf(R.nonCod)+' resi non-COD ('+(100-R.pctCod)+
+      '%) — tidak menghasilkan net omzet';
+    document.getElementById('kSampai').innerHTML    = nf(R.sampai)+' <span class="tag ok">'+R.pctSampai+'%</span>';
+    document.getElementById('kNetSampai').textContent = 'net omzet '+rp(R.netSampai);
+    document.getElementById('kMasalah').innerHTML   = nf(R.bermasalah)+' <span class="tag no">'+R.pctBermasalah+'%</span>';
+    document.getElementById('kMasalahI').textContent= 'TTD belum sampai tapi Waktu Terima terisi';
+    document.getElementById('kProses').innerHTML    = nf(R.proses)+' <span class="tag wt">'+R.pctProses+'%</span>';
+    document.getElementById('kNetProses').textContent = 'potensi net omzet '+rp(R.netProses);
+    document.getElementById('kDurasi').textContent  = R.rerataDurasi;
+  }
+  function drawKpiSettle(s){
+    document.getElementById('kSettle').textContent  = nf(s.sudahSettle);
+    document.getElementById('kSettleI').textContent = 'net '+rp(s.netSudahSettle);
+    document.getElementById('kBelum').textContent   = nf(s.belumSettle);
+    document.getElementById('kBelumI').textContent  = 'net '+rp(s.netBelumSettle)+' menunggu reconcile';
+    var b=s.berikutnya;
+    document.getElementById('kNext').textContent    = b? rp(b.total) : '—';
+    document.getElementById('kNextI').textContent   = b? (b.hari+', '+b.label+' · '+nf(b.resi)+' resi') : 'tidak ada';
+  }
+
+  function drawBulan(){
+    var tot={dikirim:0,sampai:0,bermasalah:0,proses:0,net:0};
+    DASH.bulanan.forEach(function(x){ tot.dikirim+=x.dikirim; tot.sampai+=x.sampai;
+      tot.bermasalah+=x.bermasalah; tot.proses+=x.proses; tot.net+=x.net; });
+    document.getElementById('tBulan').innerHTML=
+      '<thead><tr><th>Bulan pengiriman</th><th>Resi dikirim</th><th>Sampai</th><th>% sampai</th>'+
+      '<th>Bermasalah / retur</th><th>% retur</th><th>Proses kirim</th><th>% proses</th>'+
+      '<th>Rata² durasi (hari)</th><th>Net omzet (sampai)</th></tr></thead><tbody>'+
+      DASH.bulanan.map(function(x){
+        return '<tr><td><b>'+esc(x.label)+'</b></td><td>'+nf(x.dikirim)+'</td>'+
+          '<td>'+nf(x.sampai)+'</td><td><span class="tag ok">'+x.pctSampai+'%</span></td>'+
+          '<td>'+nf(x.bermasalah)+'</td>'+
+          '<td>'+(x.pctBermasalah>0?'<span class="tag no">'+x.pctBermasalah+'%</span>':'0%')+'</td>'+
+          '<td>'+nf(x.proses)+'</td>'+
+          '<td>'+(x.pctProses>0?'<span class="tag wt">'+x.pctProses+'%</span>':'0%')+'</td>'+
+          '<td>'+(x.durasi===''?'—':x.durasi)+'</td><td>'+rp(x.net)+'</td></tr>';
+      }).join('')+'</tbody>'+
+      '<tfoot><tr><td>TOTAL</td><td>'+nf(tot.dikirim)+'</td><td>'+nf(tot.sampai)+'</td>'+
+      '<td>'+(tot.dikirim?Math.round(tot.sampai/tot.dikirim*1000)/10:0)+'%</td>'+
+      '<td>'+nf(tot.bermasalah)+'</td>'+
+      '<td>'+(tot.dikirim?Math.round(tot.bermasalah/tot.dikirim*1000)/10:0)+'%</td>'+
+      '<td>'+nf(tot.proses)+'</td>'+
+      '<td>'+(tot.dikirim?Math.round(tot.proses/tot.dikirim*1000)/10:0)+'%</td>'+
+      '<td>'+DASH.ringkas.rerataDurasi+'</td><td>'+rp(tot.net)+'</td></tr></tfoot>';
+  }
+
+  function sortProv(k){
+    if(SORT.k===k) SORT.asc=!SORT.asc; else { SORT.k=k; SORT.asc=false; }
+    drawProv();
+  }
+  function drawProv(){
+    var rows=DASH.provinsi.slice();
+    rows.sort(function(a,b){
+      var x=a[SORT.k], y=b[SORT.k];
+      if(x==='') x=-1; if(y==='') y=-1;
+      if(typeof x==='string'||typeof y==='string'){
+        x=String(x).toLowerCase(); y=String(y).toLowerCase();
+        return SORT.asc ? (x<y?-1:x>y?1:0) : (x>y?-1:x<y?1:0);
+      }
+      return SORT.asc ? x-y : y-x;
+    });
+    var col=[['provinsi','Provinsi'],['total','Total resi'],['sampai','Sampai'],['pctSampai','% sampai'],
+             ['bermasalah','Retur/masalah'],['pctBermasalah','% retur'],['proses','Proses kirim'],
+             ['pctProses','% proses'],['durasi','Rata² durasi (hari)'],['net','Net omzet (sampai)']];
+    var th='<thead><tr>'+col.map(function(c){
+      var ar = SORT.k===c[0] ? (SORT.asc?' ▲':' ▼') : '';
+      return '<th class="s" onclick="sortProv(\''+c[0]+'\')">'+esc(c[1])+ar+'</th>';}).join('')+'</tr></thead>';
+    var tot={total:0,sampai:0,bermasalah:0,proses:0,net:0};
+    rows.forEach(function(r){ tot.total+=r.total; tot.sampai+=r.sampai;
+      tot.bermasalah+=r.bermasalah; tot.proses+=r.proses; tot.net+=r.net; });
+    var tb='<tbody>'+rows.map(function(r){
+      return '<tr><td><b>'+esc(r.provinsi)+'</b></td><td>'+nf(r.total)+'</td>'+
+        '<td>'+nf(r.sampai)+'</td><td><span class="tag ok">'+r.pctSampai+'%</span></td>'+
+        '<td>'+nf(r.bermasalah)+'</td><td>'+(r.pctBermasalah>0?'<span class="tag no">'+r.pctBermasalah+'%</span>':'0%')+'</td>'+
+        '<td>'+nf(r.proses)+'</td><td>'+(r.pctProses>0?'<span class="tag wt">'+r.pctProses+'%</span>':'0%')+'</td>'+
+        '<td>'+(r.durasi===''?'—':r.durasi)+'</td><td>'+rp(r.net)+'</td></tr>';
+    }).join('')+'</tbody>';
+    var tf='<tfoot><tr><td>TOTAL</td><td>'+nf(tot.total)+'</td><td>'+nf(tot.sampai)+'</td>'+
+      '<td>'+(tot.total?Math.round(tot.sampai/tot.total*1000)/10:0)+'%</td>'+
+      '<td>'+nf(tot.bermasalah)+'</td><td>'+(tot.total?Math.round(tot.bermasalah/tot.total*1000)/10:0)+'%</td>'+
+      '<td>'+nf(tot.proses)+'</td><td>'+(tot.total?Math.round(tot.proses/tot.total*1000)/10:0)+'%</td>'+
+      '<td>'+DASH.ringkas.rerataDurasi+'</td><td>'+rp(tot.net)+'</td></tr></tfoot>';
+    document.getElementById('tProv').innerHTML=th+tb+tf;
+  }
+
+  function drawKal(d){
+    document.getElementById('tKal').innerHTML=
+      '<thead><tr><th>Nilai "Tanda TTD"</th><th>Jumlah resi</th><th>Dibaca sistem sebagai</th></tr></thead><tbody>'+
+      d.kalibrasi.map(function(x){
+        return '<tr><td>'+esc(x.nilai)+'</td><td>'+nf(x.n)+'</td>'+
+          '<td><span class="tag '+(x.sampai?'ok':'wt')+'">'+(x.sampai?'SAMPAI':'belum sampai')+'</span></td></tr>';
+      }).join('')+'</tbody>';
+  }
+
+  // ============ Preview & Export: sampai tapi belum reconcile ============
+  var BELUM_LOADED=false;
+  function previewBelum(){
+    document.getElementById('ovBelum').classList.add('show');
+    hide('msgBelum');
+    document.getElementById('belumSub').textContent='memuat…';
+    document.getElementById('tBelum').innerHTML='';
+    document.getElementById('btnBelumXls').disabled=true;
+    google.script.run.withSuccessHandler(function(d){
+      renderBelum(d);
+      document.getElementById('btnBelumXls').disabled=(d.total===0);
+    }).withFailureHandler(function(e){
+      document.getElementById('belumSub').textContent='';
+      show('msgBelum','err','✕ '+(e&&e.message?e.message:'Gagal memuat.'));
+    }).getBelumReconcile();
+  }
+  function tutupBelum(){ document.getElementById('ovBelum').classList.remove('show'); }
+  document.getElementById('ovBelum').addEventListener('click',function(e){ if(e.target===this) tutupBelum(); });
+
+  function renderBelum(d){
+    document.getElementById('belumSub').innerHTML='<b>'+nf(d.total)+'</b> resi · total Net yang seharusnya diterima '+
+      '<b>'+rp(d.netTotal)+'</b> <span style="opacity:.7;">(COD, sudah sampai, belum di Settle Reconcile)</span>';
+    if(!d.total){
+      document.getElementById('tBelum').innerHTML='<tbody><tr><td class="l" style="color:var(--muted);">'+
+        'Tidak ada — semua resi COD yang sudah sampai sudah masuk reconcile. 🎉</td></tr></tbody>';
+      return;
+    }
+    var th='<thead><tr>'+
+      ['No. Waybill','Tgl Kirim','Penerima','Provinsi','Nilai Barang','Biaya (stlh diskon)','Nilai COD',
+       'COD Fee','Diterima Oleh','Waktu Terima','Keterangan','Tanda TTD','Tipe','Net Diterima']
+      .map(function(h,i){ return '<th'+(i>=4&&i!==8&&i!==10&&i!==11&&i!==12?' class="r"':'')+'>'+esc(h)+'</th>'; }).join('')+
+      '</tr></thead>';
+    var tb='<tbody>'+d.rows.map(function(x){
+      return '<tr>'+
+        '<td><b>'+esc(x.waybill)+'</b></td>'+
+        '<td>'+esc(x.tglKirim)+'</td>'+
+        '<td>'+esc(x.penerima)+'</td>'+
+        '<td>'+esc(x.provinsi)+'</td>'+
+        '<td class="r">'+rp(x.nilaiBarang)+'</td>'+
+        '<td class="r">'+rp(x.biaya)+'</td>'+
+        '<td class="r">'+rp(x.cod)+'</td>'+
+        '<td class="r">'+rp(x.fee)+'</td>'+
+        '<td>'+esc(x.diterimaOleh)+'</td>'+
+        '<td>'+esc(x.waktuTerima)+'</td>'+
+        '<td>'+esc(x.keterangan)+'</td>'+
+        '<td>'+esc(x.ttd)+'</td>'+
+        '<td><span class="tag '+(x.isCod?'ok':'')+'">'+(x.isCod?'COD':'Non-COD')+'</span></td>'+
+        '<td class="r"><b>'+rp(x.net)+'</b></td>'+
+      '</tr>';
+    }).join('')+'</tbody>';
+    document.getElementById('tBelum').innerHTML=th+tb;
+  }
+  function downloadBelum(){
+    var b=document.getElementById('btnBelumXls'); b.disabled=true;
+    show('msgBelum','info','<span class="spin" style="border-color:#999;border-top-color:transparent"></span> Menyiapkan Excel…');
+    google.script.run.withSuccessHandler(function(r){
+      b.disabled=false;
+      var bin=atob(r.b64), arr=new Uint8Array(bin.length);
+      for(var i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+      var url=URL.createObjectURL(new Blob([arr],{type:r.mime||'application/octet-stream'}));
+      var a=document.createElement('a'); a.href=url; a.download=r.nama;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function(){URL.revokeObjectURL(url);},1500);
+      show('msgBelum','ok','✔ '+nf(r.jumlah)+' baris diunduh ke '+esc(r.nama));
+    }).withFailureHandler(function(e){
+      b.disabled=false; show('msgBelum','err','✕ '+(e&&e.message?e.message:'Gagal export.'));
+    }).exportBelumReconcile();
+  }
+
+  function cekDup(){
+    var el=document.getElementById('dupHasil');
+    el.innerHTML='<span class="spin" style="border-color:#999;border-top-color:transparent"></span> Memeriksa…';
+    google.script.run.withSuccessHandler(function(h){
+      var baris=['allResi','reconcile'].map(function(k){
+        var o=h[k];
+        var st = o.duplikat? '<span class="tag no">'+nf(o.duplikat)+' duplikat</span>'
+                           : '<span class="tag ok">bersih</span>';
+        return '<tr><td><b>'+esc(o.sheet)+'</b></td><td>'+nf(o.total)+'</td><td>'+nf(o.unik)+'</td>'+
+          '<td>'+nf(o.tanpaWaybill)+'</td><td>'+st+
+          (o.contoh.length?'<br><span style="color:var(--muted);font-size:11px;">'+
+            esc(o.contoh.join(', '))+'</span>':'')+'</td></tr>';
+      }).join('');
+      el.innerHTML='<table class="tbl"><thead><tr><th>Sheet</th><th>Total baris</th>'+
+        '<th>Waybill unik</th><th>Tanpa waybill</th><th>Status</th></tr></thead><tbody>'+
+        baris+'</tbody></table>';
+    }).withFailureHandler(function(e){
+      el.innerHTML='<span style="color:#9a1420;">✕ '+esc(e&&e.message?e.message:'Gagal.')+'</span>';
+    }).cekDuplikat();
+  }
+
+  function drawCair(d){
+    var el=document.getElementById('tCair');
+    if(!d.pencairan.length){
+      el.innerHTML='<tbody><tr><td style="color:var(--muted);">Belum ada resi COD yang sampai tujuan.</td></tr></tbody>';
+      return;
+    }
+    var tot={rs:0,ns:0,rp2:0,np:0};
+    el.innerHTML='<thead><tr><th>Tanggal cair</th><th>Hari</th>'+
+      '<th>Resi terkonfirmasi</th><th>Net terkonfirmasi</th>'+
+      '<th>Resi proyeksi</th><th>Net proyeksi</th><th>Total cair</th><th></th></tr></thead><tbody>'+
+      d.pencairan.map(function(c){
+        tot.rs+=c.resiSettle; tot.ns+=c.netSettle; tot.rp2+=c.resiProyeksi; tot.np+=c.netProyeksi;
+        var st = c.lewat ? '<span class="tag">sudah lewat</span>'
+                         : (c.resiProyeksi ? '<span class="tag wt">ada proyeksi</span>'
+                                           : '<span class="tag ok">terkonfirmasi</span>');
+        return '<tr'+(c.lewat?' style="opacity:.62"':'')+'>'+
+          '<td><b>'+esc(c.label)+'</b></td><td>'+esc(c.hari)+'</td>'+
+          '<td>'+nf(c.resiSettle)+'</td><td>'+rp(c.netSettle)+'</td>'+
+          '<td>'+(c.resiProyeksi?'<b>'+nf(c.resiProyeksi)+'</b>':'0')+'</td>'+
+          '<td>'+(c.netProyeksi?'<b>'+rp(c.netProyeksi)+'</b>':'Rp 0')+'</td>'+
+          '<td><b>'+rp(c.total)+'</b></td><td>'+st+'</td></tr>';
+      }).join('')+'</tbody>'+
+      '<tfoot><tr><td>TOTAL</td><td></td><td>'+nf(tot.rs)+'</td><td>'+rp(tot.ns)+'</td>'+
+      '<td>'+nf(tot.rp2)+'</td><td>'+rp(tot.np)+'</td><td>'+rp(tot.ns+tot.np)+'</td><td></td></tr></tfoot>';
+  }
+</script>
+</body>
+</html>

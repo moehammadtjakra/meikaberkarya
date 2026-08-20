@@ -45,6 +45,17 @@ def _norm_text(s: pd.Series) -> pd.Series:
 def clean_all_resi(df_raw: pd.DataFrame) -> pd.DataFrame:
     df = df_raw.rename(columns=config.COLMAP_ALL_RESI).copy()
 
+    # Jaminan kolom: sumber GSheet mungkin tak punya sebagian kolom turunan Excel
+    # (mis. 'rekon'). Pastikan ada agar tidak KeyError di hilir; isi NaN = default aman.
+    for c in ["provinsi", "kota", "kecamatan", "layanan", "metode_bayar", "tipe_cod",
+              "rekon", "status_ttd", "abnormal", "nama_barang", "kategori_barang"]:
+        if c not in df.columns:
+            df[c] = np.nan
+    for c in ["ongkir", "total_biaya", "biaya_diskon", "voucher", "nilai_cod",
+              "cod_fee", "nilai_produk", "berat"]:
+        if c not in df.columns:
+            df[c] = np.nan
+
     # ---- tanggal ----
     for c in ["tgl_kirim", "waktu_terima"]:
         if c in df:
@@ -79,10 +90,14 @@ def clean_all_resi(df_raw: pd.DataFrame) -> pd.DataFrame:
         df["is_retur"] = False
         df["in_transit"] = False
 
-    # durasi: bila kosong tapi ada kedua tanggal, hitung selisih
-    if "durasi_kirim" in df and {"tgl_kirim", "waktu_terima"}.issubset(df.columns):
+    # durasi kirim: bila kolom tidak ada / kosong, hitung dari (waktu_terima − tgl_kirim).
+    # Penting untuk sumber GSheet yang tidak menyimpan kolom turunan "Durasi Kirim".
+    if {"tgl_kirim", "waktu_terima"}.issubset(df.columns):
         calc = (df["waktu_terima"] - df["tgl_kirim"]).dt.days
-        df["durasi_kirim"] = df["durasi_kirim"].fillna(calc)
+        df["durasi_kirim"] = (df["durasi_kirim"].fillna(calc)
+                              if "durasi_kirim" in df else calc)
+    if "durasi_kirim" not in df.columns:
+        df["durasi_kirim"] = np.nan
     df.loc[df["durasi_kirim"] < 0, "durasi_kirim"] = np.nan
 
     # hari (nama) kirim & terima
@@ -91,9 +106,13 @@ def clean_all_resi(df_raw: pd.DataFrame) -> pd.DataFrame:
     if "waktu_terima" in df:
         df["hari_terima"] = df["waktu_terima"].dt.weekday.map(HARI_ID)
 
-    # proyeksi net fallback
-    if "proyeksi_net" not in df or df["proyeksi_net"].isna().all():
-        df["proyeksi_net"] = df.get("nilai_produk", 0)
+    # Proyeksi Net: bila kolom belum ada (data GSheet tanpa kolom turunan),
+    # hitung dgn rumus tervalidasi = Nilai Produk + Biaya Diskon (cashback) − COD Fee.
+    if "proyeksi_net" not in df.columns or df["proyeksi_net"].isna().all():
+        _np = pd.to_numeric(df["nilai_produk"], errors="coerce").fillna(0) if "nilai_produk" in df else 0
+        _bd = pd.to_numeric(df["biaya_diskon"], errors="coerce").fillna(0) if "biaya_diskon" in df else 0
+        _cf = pd.to_numeric(df["cod_fee"], errors="coerce").fillna(0) if "cod_fee" in df else 0
+        df["proyeksi_net"] = _np + _bd - _cf
 
     return df
 
@@ -138,6 +157,8 @@ def clean_all(raw: dict) -> dict:
         "all_resi": clean_all_resi(raw["all_resi"]),
         "settle": clean_settle(raw.get("settle")),
         "problem": raw.get("problem"),
+        "order": raw.get("order"),      # sheet Import-Order (admin) — mentah
+        "stock": raw.get("stock"),      # sheet Import-Stock (admin) — mentah
         "path": raw.get("path"),
         "mtime": raw.get("mtime"),
     }
