@@ -70,6 +70,8 @@ html {{ scroll-behavior:smooth; }}
             border-left-color:{T['amber']}; }}
 .section-banner.green {{ background:linear-gradient(90deg,{T['green']}22,{T['card']});
             border-left-color:{T['green']}; }}
+.section-banner.purple {{ background:linear-gradient(90deg,{T['purple']}22,{T['card']});
+            border-left-color:{T['purple']}; }}
 .navbar {{ display:flex; gap:8px; flex-wrap:wrap; margin:2px 0 10px 0; }}
 .navbar a {{ background:{T['card']}; border:1px solid {T['grid']}; color:{T['text']};
             padding:6px 14px; border-radius:20px; font-size:.82rem; font-weight:600;
@@ -1017,13 +1019,15 @@ with tab2:
     avg_ongkir_all = float(dff["ongkir"].mean()) if "ongkir" in dff else 0.0
     avg_cashback_all = float(dff["biaya_diskon"].mean()) if "biaya_diskon" in dff else 0.0
 
-    st.markdown("#### 🗺️ Analisis Wilayah — Ringkasan Keputusan")
+    section("🗺️ Analisis Wilayah — Ringkasan Keputusan",
+            "Sebaran resi, % sampai & retur per provinsi (pembagi = total resi). "
+            "Fokuskan iklan di wilayah sehat, kurangi di wilayah retur tinggi.",
+            cls="green")
     k = st.columns(4)
     kpi(k[0], "Total Resi", num(tot_resi), f"{prov['provinsi'].nunique()} provinsi")
-    kpi(k[1], "% Sampai Rata²", fmt.persen(sla_all, 0), "paket sukses sampai konsumen",
+    kpi(k[1], "% Sampai Rata²", fmt.persen(sla_all, 0), "sukses sampai konsumen",
         cls="green" if sla_all >= config.TARGET_SAMPAI_MIN else "amber",
-        help="Persentase paket yang statusnya 'Sampai Tujuan' dari total dikirim. "
-             "(dulu diberi label SLA)")
+        help="Paket 'Sampai Tujuan' ÷ total resi dikirim.")
     kpi(k[2], "% Retur Rata²", fmt.persen(retur_all, 0), f"{num(tot_retur)} paket retur",
         cls="green" if retur_all <= config.TARGET_RETUR_MAX else "amber",
         help="Paket 'Belum Diterima' tapi sudah ada Waktu Terima = diupayakan antar lalu "
@@ -1069,8 +1073,7 @@ with tab2:
     fig_map = (viz.fig_choropleth(prov, gj, metric, metric_label, reverse=rev)
                if gj is not None else viz.fig_bubble_map(prov, metric, metric_label, reverse=rev))
     mc[0].plotly_chart(fig_map, width='stretch')
-    mc[1].caption("🟢 Hijau = baik, 🔴 Merah = buruk. Untuk Retur/Durasi/Outstanding, "
-                  "makin hijau makin rendah (makin baik).")
+    mc[1].caption("🟢 baik · 🔴 buruk (Retur/Durasi/Outstanding: makin hijau makin rendah).")
 
     for line in insights.geography_insights(prov):
         st.markdown(f'<div class="insight">• {line}</div>', unsafe_allow_html=True)
@@ -1138,23 +1141,39 @@ with tab2:
 
 # =================================================================== MODUL 3
 with tab3:
-    st.markdown("#### 📦 Analisis Produk — Keputusan Cepat")
-    master = st.session_state.get("produk_master")
-    hpp_map = (dict(zip(master["Produk"].astype(str),
-                        pd.to_numeric(master["HPP"], errors="coerce").fillna(0)))
-               if master is not None and not master.empty else {})
-    default_hpp = round(baseline["avg_nilai_produk"] * config.DEFAULTS["hpp_ratio"])
+    section("📦 Analisis Produk — Keputusan Cepat",
+            "Winning & produk teraman dari katalog admin (nama SKU unik, closing/retur riil). "
+            "Prioritaskan stok, modal & iklan pada produk inti (Pareto).",
+            cls="purple")
     topc = st.columns([3, 1])
-    topc[0].caption("**Winning** = kontribusi margin terbesar. **Aman** = paling banyak "
-                    "sampai & paling sedikit retur. HPP dari Tabel Produk (Modul 1).")
+    _use_cat = _catalog is not None and not _catalog.empty
+    if _use_cat:
+        _pp = dict(ongkir=ongkir, cashback_pct=cashback_pct / 100,
+                   cod_fee_rate=cod_fee_pct / 100, opex_var_resi=opex_var_resi)
+        prod = prodeng.product_summary_catalog(_catalog, _pp)
+        topc[0].caption("Sumber: **katalog admin** (nama SKU unik, closing & retur riil). "
+                        "🏆 Winning = kontribusi margin terbesar • ✅ Aman = sampai tinggi, retur rendah.",
+                        help="Margin/resi = margin kotor SEBELUM iklan (Nilai − HPP − Fee COD + "
+                             "Cashback). Retur % & Sampai % memakai pembagi TOTAL resi per produk.")
+    else:
+        master = st.session_state.get("produk_master")
+        hpp_map = (dict(zip(master["Produk"].astype(str),
+                            pd.to_numeric(master["HPP"], errors="coerce").fillna(0)))
+                   if master is not None and not master.empty else {})
+        default_hpp = round(baseline["avg_nilai_produk"] * config.DEFAULTS["hpp_ratio"])
+        prod = prodeng.product_summary(dff, hpp=default_hpp, hpp_map=hpp_map, use_clean=True)
+        topc[0].caption("Sumber: histori all_resi (Nama Barang). 🏆 Winning = margin terbesar • "
+                        "✅ Aman = sampai tinggi, retur rendah.")
     pareto_pct = topc[1].slider("Ambang Pareto (%)", 50, 95, 80, step=5)
 
-    prod = prodeng.product_summary(dff, hpp=default_hpp, hpp_map=hpp_map, use_clean=True)
     if prod.empty:
-        st.warning("Kolom produk (Nama Barang) tidak tersedia pada data.")
+        st.warning("Data produk tidak tersedia (cek sheet Import-Order/Stock atau kolom Nama Barang).")
     else:
+        if "closing_rate" not in prod.columns:
+            prod["closing_rate"] = np.nan
+        _p0 = lambda v: "–" if pd.isna(v) else fmt.persen(v, 0)
         pareto = prodeng.pareto_threshold(prod, pareto_pct)
-        sigp = prod[prod["resi"] >= 10]
+        sigp = prod[(prod["resi"] >= 10) & prod["retur_pct"].notna()]
         win = prod.iloc[0]
         safe = (sigp.sort_values(["retur_pct", "sla"], ascending=[True, False]).iloc[0]
                 if not sigp.empty else win)
@@ -1163,24 +1182,16 @@ with tab3:
         r = st.columns(4)
         kpi(r[0], "🏆 Winning (Margin Terbaik)", win["produk"][:20],
             f"{fmt.persen(win['kontribusi_pct'])} net • {rp(win['margin_jual_per_resi'])}/resi",
-            cls="green", help="Produk dengan kontribusi net real (margin) terbesar.")
+            cls="green", help="Kontribusi net (margin kotor × volume) terbesar.")
         kpi(r[1], "✅ Produk Teraman", safe["produk"][:20],
-            f"retur {safe['retur_pct']:.0f}% • sampai {safe['sla']:.0f}%", cls="green",
-            help="Paling banyak sampai & paling sedikit retur (min 10 resi).")
+            f"retur {_p0(safe['retur_pct'])} • sampai {_p0(safe['sla'])}", cls="green",
+            help="Retur terendah & sampai tertinggi (min 10 resi, data pengiriman tersedia).")
         kpi(r[2], "Total Net Real", rp(prod["net_real"].sum()), f"{num(len(prod))} produk",
-            cls="green")
+            cls="green", help="Total margin kotor seluruh produk (sebelum iklan).")
         kpi(r[3], f"Produk Inti (Pareto {pareto_pct}%)", num(pareto["n_produk_inti"]),
-            f"{pareto['share_produk']:.0f}% produk = {pareto_pct}% net", cls="amber")
-
-        # ---- BRIEF PARETO (kacamata bisnis) ----
-        st.info(f"📊 **Arti Pareto:** hanya **{pareto['n_produk_inti']} dari "
-                f"{pareto['n_produk_total']} produk** ({pareto['share_produk']:.0f}% katalog) "
-                f"sudah menyumbang **{pareto_pct}% dari total keuntungan**. Artinya bisnis Anda "
-                f"**bertumpu pada segelintir produk inti** — di sinilah stok, modal, dan budget "
-                f"iklan sebaiknya diprioritaskan. Sisanya (produk 'ekor panjang') kontribusinya "
-                f"kecil: evaluasi mana yang dipertahankan, mana yang dihentikan agar modal & "
-                f"perhatian tidak terpecah. Geser ambang Pareto untuk melihat konsentrasi ini "
-                f"lebih ketat/longgar.")
+            f"{pareto['share_produk']:.0f}% produk = {pareto_pct}% net", cls="amber",
+            help=f"{pareto['n_produk_inti']} dari {pareto['n_produk_total']} produk "
+                 f"menyumbang {pareto_pct}% keuntungan — prioritaskan stok, modal & iklan di sini.")
 
         st.markdown("##### 💡 Insight Otomatis")
         for line in insights.product_insights(prod, pareto):
@@ -1190,21 +1201,23 @@ with tab3:
         st.markdown("##### 🏆 Winning Products  vs  ✅ Produk Teraman")
         cols = st.columns(2)
         wl = prod.head(10)
-        cols[0].caption("Kontribusi margin terbaik (genjot iklannya)")
+        cols[0].caption("🏆 Kontribusi margin terbesar — genjot iklannya")
         cols[0].dataframe(pd.DataFrame({
             "Produk": wl["produk"], "Resi": wl["resi"].map(num),
             "Net Real": wl["net_real"].map(rp),
             "Margin/Resi": wl["margin_jual_per_resi"].map(rp),
+            "Closing": wl["closing_rate"].map(_p0),
             "Kontribusi": wl["kontribusi_pct"].map(lambda v: fmt.persen(v)),
-            "% Sampai": wl["sla"].map(lambda v: fmt.persen(v, 0)),
+            "Sampai": wl["sla"].map(_p0),
         }), width='stretch', height=380, hide_index=True)
         sl = (sigp.sort_values(["retur_pct", "sla"], ascending=[True, False]).head(10)
               if not sigp.empty else prod.head(10))
-        cols[1].caption("Paling aman (sampai tinggi, retur rendah)")
+        cols[1].caption("✅ Sampai tinggi, retur rendah — paling minim risiko modal")
         cols[1].dataframe(pd.DataFrame({
             "Produk": sl["produk"], "Resi": sl["resi"].map(num),
-            "% Sampai": sl["sla"].map(lambda v: fmt.persen(v, 0)),
-            "% Retur": sl["retur_pct"].map(lambda v: fmt.persen(v, 0)),
+            "Sampai": sl["sla"].map(_p0),
+            "Retur": sl["retur_pct"].map(_p0),
+            "Closing": sl["closing_rate"].map(_p0),
             "Margin/Resi": sl["margin_jual_per_resi"].map(rp),
         }), width='stretch', height=380, hide_index=True)
 
@@ -1221,34 +1234,38 @@ with tab3:
         psel2 = st.selectbox("Pilih Produk", prod["produk"].tolist())
         row = prod[prod["produk"] == psel2].iloc[0]
         dd = st.columns(4)
-        kpi(dd[0], "Resi", num(row["resi"]), f"AOV {rp(row['aov'])}")
-        kpi(dd[1], "Margin Jual / Resi", rp(row["margin_jual_per_resi"]),
-            f"{fmt.persen(row['margin_pct'])} (sblm iklan)",
+        kpi(dd[0], "Resi", num(row["resi"]), f"AoV {rp(row['aov'])}",
+            help="Total resi terkirim • AoV = nilai jual rata-rata per resi.")
+        kpi(dd[1], "Margin/Resi (sblm iklan)", rp(row["margin_jual_per_resi"]),
+            f"{fmt.persen(row['margin_pct'])} margin",
             cls="green" if row["margin_jual_per_resi"] >= 0 else "amber")
-        kpi(dd[2], "% Sampai / % Retur", f"{row['sla']:.0f}% / {row['retur_pct']:.0f}%",
-            cls="green" if row["sla"] >= config.TARGET_SAMPAI_MIN else "amber")
+        kpi(dd[2], "Sampai / Retur", f"{_p0(row['sla'])} / {_p0(row['retur_pct'])}",
+            f"closing {_p0(row['closing_rate'])}",
+            cls="green" if (pd.notna(row["sla"]) and row["sla"] >= config.TARGET_SAMPAI_MIN)
+            else "amber", help="Sampai% & Retur% memakai pembagi total resi produk.")
         kpi(dd[3], "Kontribusi Net", fmt.persen(row["kontribusi_pct"]),
             f"net {rp(row['net_real'])}", cls="green")
 
         with st.expander("📋 Tabel lengkap semua produk"):
             tbl = pd.DataFrame({
                 "Produk": prod["produk"], "Resi": prod["resi"].map(num),
-                "Nilai Produk": prod["aov"].map(rp),
-                "Margin Jual/Resi": prod["margin_jual_per_resi"].map(rp),
+                "AoV": prod["aov"].map(rp),
+                "Margin/Resi": prod["margin_jual_per_resi"].map(rp),
                 "Margin %": prod["margin_pct"].map(lambda v: fmt.persen(v)),
                 "Net Total": prod["net_real"].map(rp),
                 "Kontribusi": prod["kontribusi_pct"].map(lambda v: fmt.persen(v)),
-                "% Sampai": prod["sla"].map(lambda v: fmt.persen(v, 0)),
-                "% Retur": prod["retur_pct"].map(lambda v: fmt.persen(v, 0)),
+                "Closing": prod["closing_rate"].map(_p0),
+                "Sampai": prod["sla"].map(_p0),
+                "Retur": prod["retur_pct"].map(_p0),
             })
             st.dataframe(tbl, width='stretch', height=360, hide_index=True)
 
 # =================================================================== MODUL TARGET
 with tab4:
-    st.markdown("#### 🎯 Target Profit Simulator")
-    st.caption("Tetapkan target laba & waktu, sistem menghitung MUNDUR skenario yang "
-               "dibutuhkan (closing, CPL, budget) + batas aman biaya. Parameter dasar "
-               "diambil dari Tabel Produk & Parameter Global di Modul 1.")
+    section("🎯 Target Profit Simulator",
+            "Tetapkan target laba & waktu → sistem hitung MUNDUR skenario (closing, CPL, budget) "
+            "+ batas aman. Parameter dasar dari Tabel Produk & Parameter Global (Modul 1).",
+            cls="amber")
 
     tc = st.columns([1, 1, 2])
     target_profit = rupiah_input(tc[0], "Target Laba Bersih (Rp)", 600_000_000, "in_target")
@@ -1300,8 +1317,7 @@ with tab4:
                  "perbaiki dulu closing/CPL/HPP/harga sebelum scaling.")
 
     st.markdown("##### 🧭 Strategi Mencapai Target (laba likuid)")
-    st.caption("Empat jalur berbeda menuju target laba likuid yang sama. Angka sudah "
-               "memperhitungkan bahwa sebagian COD belum cair dalam horizon.")
+    st.caption("Empat jalur menuju target laba likuid yang sama (sudah memperhitungkan COD outstanding).")
     for opt in res["options"]:
         f = opt["funnel"]
         badge = "✅ Realistis" if opt["feasible"] else "⚠️ Sulit / perlu lever lain"
@@ -1317,13 +1333,9 @@ with tab4:
     # --- Batas aman (guardrail AND) ---
     L = res["limits"]
     if L:
-        st.markdown("##### 🛡️ Batas Aman — Harus Terpenuhi Bersamaan (AND)")
-        st.warning("Seluruh parameter batas aman di bawah ini harus berada dalam rentang "
-                   "rekomendasi **secara bersamaan**. Apabila **salah satu** parameter berada "
-                   "di luar batas, target laba bersih **berpotensi tidak tercapai** meskipun "
-                   "parameter lainnya masih memenuhi.")
-        st.caption(f"Dihitung pada rencana yang mencapai target (budget ≈ "
-                   f"{rp(L.get('budget_ref',0)/target_days)}/hari). Batas = titik impas per parameter.")
+        st.markdown("##### 🛡️ Batas Aman — Harus Terpenuhi **Bersamaan** (AND)")
+        st.caption("Semua batas berikut harus terpenuhi sekaligus; salah satu meleset → target "
+                   f"berpotensi gagal. Titik impas per parameter (budget ≈ {rp(L.get('budget_ref',0)/target_days)}/hari).")
         gl = st.columns(4)
         kpi(gl[0], "HPP Maksimal / produk", "≤ " + rp(L.get("hpp_max", 0)),
             f"skrg {rp(base['hpp'])}", cls="green",

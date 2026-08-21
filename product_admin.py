@@ -214,8 +214,9 @@ def build_catalog(order_df: pd.DataFrame | None,
     agg["hpp_order"] = _num(agg["hpp_order"]).round()
     agg["aov"] = agg["nilai_jual"]                         # Average Order Value
 
-    # --- Retur per SKU: join order (No. Waybill) ↔ all_resi (waybill) ---
+    # --- Retur & Sampai per SKU: join order (No. Waybill) ↔ all_resi (waybill) ---
     agg["retur_pct"] = np.nan
+    agg["sampai_pct"] = np.nan
     try:
         if (all_resi is not None and len(all_resi) and "No. Waybill" in o.columns
                 and "waybill" in all_resi.columns):
@@ -226,17 +227,22 @@ def build_catalog(order_df: pd.DataFrame | None,
             ar["is_retur"] = (all_resi["is_retur"].values if "is_retur" in all_resi else False)
             ar["is_sampai"] = (all_resi["is_sampai"].values if "is_sampai" in all_resi else False)
             j = wb.merge(ar, on="wb", how="left")
-            # Retur % = retur (gagal diterima) ÷ TOTAL seluruh resi produk itu
-            # (bukan hanya sampai+retur), sesuai acuan ekspedisi & asumsi success delivery.
+            # Retur % = retur (gagal diterima) ÷ TOTAL seluruh resi produk itu;
+            # Sampai % = sukses sampai ÷ TOTAL resi. Keduanya memakai pembagi total resi,
+            # sesuai acuan ekspedisi & asumsi success delivery.
             gg = (j.groupby("SKU")
-                    .agg(retur=("is_retur", "sum"), total=("wb", "size")).reset_index())
+                    .agg(retur=("is_retur", "sum"), sampai=("is_sampai", "sum"),
+                         total=("wb", "size")).reset_index())
             _den = _num(gg["total"]).replace(0, np.nan)
             gg["retur_pct"] = _num(gg["retur"]) / _den * 100
-            agg = agg.drop(columns=["retur_pct"]).merge(
-                gg[["SKU", "retur_pct"]], on="SKU", how="left")
+            gg["sampai_pct"] = _num(gg["sampai"]) / _den * 100
+            agg = agg.drop(columns=["retur_pct", "sampai_pct"]).merge(
+                gg[["SKU", "retur_pct", "sampai_pct"]], on="SKU", how="left")
     except Exception:
         agg["retur_pct"] = np.nan
+        agg["sampai_pct"] = np.nan
     agg["retur_pct"] = _num(agg["retur_pct"]).round(1)
+    agg["sampai_pct"] = _num(agg["sampai_pct"]).round(1)
 
     # --- Closing rate per SKU dari OrderOnline ---
     agg["closing_rate"] = np.nan

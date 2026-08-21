@@ -121,6 +121,58 @@ def seed_product_table(df: pd.DataFrame, top_n: int = 25,
     return out
 
 
+def product_summary_catalog(catalog: pd.DataFrame, params: dict | None = None) -> pd.DataFrame:
+    """Ringkasan per produk dari KATALOG ADMIN (nama unik, closing & retur riil per SKU).
+
+    Berbeda dari product_summary() yang memakai 'Nama Barang' all_resi yang berantakan:
+    di sini sumbernya sheet Import-Order/Stock/OrderOnline (nama SKU bersih & unik).
+
+    Kolom margin memakai MARGIN KOTOR / resi (SEBELUM biaya iklan) — lensa yang benar
+    untuk menilai 'produk mana paling menguntungkan' secara historis, karena alokasi
+    iklan per produk historis tidak diketahui.
+    """
+    if catalog is None or catalog.empty:
+        return pd.DataFrame()
+    p = params or {}
+    ongkir = float(p.get("ongkir", 0) or 0)
+    cb = float(p.get("cashback_pct", 0) or 0)          # fraksi 0..1
+    fee = float(p.get("cod_fee_rate", 0) or 0)         # fraksi 0..1
+    ovar = float(p.get("opex_var_resi", 0) or 0)
+
+    c = catalog.copy()
+    nj = pd.to_numeric(c.get("nilai_jual"), errors="coerce").fillna(0)
+    hp = pd.to_numeric(c.get("hpp_order"), errors="coerce").fillna(0)
+    resi = pd.to_numeric(c.get("n_orders"), errors="coerce").fillna(0)
+
+    # margin kotor / resi (sebelum iklan) — konsisten dgn rumus CM Modul 1 tanpa CAC
+    margin_jr = (nj - hp - fee * (nj + ongkir) + cb * ongkir - ovar)
+
+    g = pd.DataFrame({
+        "produk": c.get("nama", c.get("SKU")).astype(str),
+        "resi": resi.round().astype(int),
+        "aov": nj.round(),
+        "margin_jual_per_resi": margin_jr.round(),
+        "revenue": (nj * resi).round(),
+        "net_real": (margin_jr * resi).round(),
+        "margin_pct": (margin_jr / nj.replace(0, np.nan) * 100).round(1),
+        "sla": pd.to_numeric(c.get("sampai_pct"), errors="coerce").round(1),
+        "retur_pct": pd.to_numeric(c.get("retur_pct"), errors="coerce").round(1),
+        "closing_rate": pd.to_numeric(c.get("closing_rate"), errors="coerce").round(1),
+        "pcs_total": pd.to_numeric(c.get("pcs_total"), errors="coerce").fillna(0).astype(int),
+        "stok_pcs": pd.to_numeric(c.get("stok_pcs"), errors="coerce").fillna(0).astype(int),
+    })
+    g["margin_jual"] = (g["margin_jual_per_resi"] * g["resi"]).round()
+    g["margin_per_resi"] = g["margin_jual_per_resi"]        # utk kuadran
+    g["sampai"] = (g["sla"].fillna(0) / 100 * g["resi"]).round().astype(int)
+    g["retur"] = (g["retur_pct"].fillna(0) / 100 * g["resi"]).round().astype(int)
+
+    total_net = g["net_real"].sum()
+    g = g.sort_values("net_real", ascending=False).reset_index(drop=True)
+    g["kontribusi_pct"] = (g["net_real"] / total_net * 100).round(2) if total_net else 0
+    g["kontribusi_kumulatif"] = g["kontribusi_pct"].cumsum().round(1)
+    return g
+
+
 def pareto_threshold(prod: pd.DataFrame, pct: float = 80.0) -> dict:
     """Jumlah produk yang menyumbang `pct`% net (prinsip Pareto)."""
     if prod.empty:
