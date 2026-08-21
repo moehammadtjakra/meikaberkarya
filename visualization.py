@@ -243,21 +243,21 @@ def fig_cash_position(tl: pd.DataFrame, summary: dict) -> go.Figure:
 
 
 def fig_compare_saldo(dates, saldo_global, saldo_daily, modal: float = 0.0) -> go.Figure:
-    """Bandingkan posisi kas: skema Global vs skema Penyesuaian Harian (dalam horizon)."""
+    """Bandingkan posisi kas: skema Global vs skema Penyesuaian (dalam horizon)."""
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=dates, y=saldo_global, name="Skema Global", mode="lines",
                              line=dict(color=T["blue"], width=2.6),
                              hovertemplate="%{x|%d %b}<br>Global: %{y:,.0f}<extra></extra>"))
-    fig.add_trace(go.Scatter(x=dates, y=saldo_daily, name="Skema Harian (disesuaikan)",
+    fig.add_trace(go.Scatter(x=dates, y=saldo_daily, name="Skema Penyesuaian",
                              mode="lines", line=dict(color=T["amber"], width=2.6, dash="dash"),
-                             hovertemplate="%{x|%d %b}<br>Harian: %{y:,.0f}<extra></extra>"))
+                             hovertemplate="%{x|%d %b}<br>Penyesuaian: %{y:,.0f}<extra></extra>"))
     if modal:
         fig.add_hline(y=modal, line=dict(color=T["muted"], dash="dot", width=1),
                       annotation_text=f"Modal {_rp(modal)}",
                       annotation_position="top left", annotation_font=dict(color=T["muted"], size=10))
     fig.add_hline(y=0, line=dict(color=T["red"], dash="dot", width=1))
     fig.update_layout(hovermode="x unified")
-    return _base_layout(fig, "Perbandingan Posisi Kas: Global vs Penyesuaian Harian", 380)
+    return _base_layout(fig, "Perbandingan Posisi Kas: Global vs Penyesuaian", 380)
 
 
 def fig_monthly_pnl(mdf: pd.DataFrame) -> go.Figure:
