@@ -249,14 +249,22 @@ def seed_master(params: dict | None = None):
     return t[_PCOLS]
 
 
-def _recompute_derived(dfp, ongkir_, cb_pct_, fee_pct_, ovar_):
-    """Hitung ulang CM & CM% dari kolom input (live); Retur % tetap dari data."""
+def _recompute_derived(dfp, ongkir_, cb_pct_, fee_pct_, ovar_, closing_, success_):
+    """Hitung ulang CM, CM% & Laba/Order dari kolom input (live), termasuk CPL.
+    Retur % tetap dari data (tidak dihitung ulang). CM TIDAK bergantung CPL (pra-iklan);
+    Laba/Order = success×CM − biaya retur − CPL/closing (memperhitungkan CPL)."""
     d = dfp.copy()
     nj = pd.to_numeric(d.get("Nilai Produk"), errors="coerce").fillna(0)
     hp = pd.to_numeric(d.get("HPP"), errors="coerce").fillna(0)
+    cpl = pd.to_numeric(d.get("CPL"), errors="coerce").fillna(0)
+    retur = pd.to_numeric(d.get("Retur %"), errors="coerce")
     cm = nj - hp - (fee_pct_ / 100) * (nj + ongkir_) + (cb_pct_ / 100) * ongkir_ - ovar_
     d["CM"] = cm.round()
     d["CM%"] = (cm / nj.replace(0, np.nan) * 100).round(1)
+    succ = (1 - retur / 100).where(retur.notna(), success_).clip(0.05, 1.0)
+    cac = (cpl / closing_) if closing_ else 0.0
+    ret_per = ((1 - succ) - config.RETUR_FREE_THRESHOLD).clip(lower=0) * ongkir_
+    d["Laba/Order"] = (succ * cm - (1 - succ) * ret_per - cac).round()
     if "Retur %" not in d.columns:
         d["Retur %"] = np.nan
     return d
@@ -417,7 +425,7 @@ with tab1:
                 help="Laba bersih per order DIKIRIM setelah biaya iklan & retur = "
                      "success×CM − biaya retur − (CPL ÷ closing). Inilah CM yang sudah "
                      "memperhitungkan CPL. Positif = tiap order untung setelah akuisisi. "
-                     "Refresh saat 'Re-plot optimal'."),
+                     "Ter-update otomatis saat Anda ubah CPL/Nilai/HPP."),
         }
         # --- Urutkan lalu TETAP bisa edit: tombol Urutkan menata ulang baris (edit ikut terbawa) ---
         _sc = st.columns([2, 2, 1.3, 4])
@@ -438,9 +446,21 @@ with tab1:
         edited = st.data_editor(
             st.session_state["produk_master"], num_rows="dynamic", width='stretch',
             height=320, key="editor_master", column_config=_colcfg)
-        # Kolom CM/CM% (disabled) menyegar saat tekan "Re-plot optimal". Edit manual pada
-        # Nilai/HPP tetap dipakai simulasi (via `edited`), CM tampil ter-update usai re-plot.
-        st.session_state["produk_current"] = edited     # snapshot utk fitur Planning (aman, key beda)
+        # Hitung ulang kolom turunan (CM, CM%, Laba/Order) LIVE dari input terbaru — termasuk CPL.
+        # Hanya kolom disabled yang ditimpa (kolom input dipegang widget → tanpa lag 2x-Enter).
+        _ed = _recompute_derived(edited, ongkir, cashback_pct, cod_fee_pct, opex_var_resi,
+                                 closing, success)
+        _pm = st.session_state["produk_master"]
+        if len(_ed) == len(_pm):
+            _dk = lambda dfx: dfx[_DERIVED].round(1).fillna(-9e9).values.tolist()
+            if _dk(_pm) != _dk(_ed):
+                for _c in _DERIVED:
+                    _pm[_c] = _ed[_c].values
+                st.rerun()
+        else:
+            st.session_state["produk_master"] = _ed     # struktur berubah (tambah/hapus baris)
+        st.session_state["produk_current"] = _ed        # snapshot utk Planning
+        edited = _ed
 
         overrides = dict(modal_awal=modal_awal, start_date=start_ts,
                          closing_rate=closing, success_rate=success, ongkir_per_resi=ongkir,
