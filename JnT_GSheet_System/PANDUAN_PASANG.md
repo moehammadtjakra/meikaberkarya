@@ -140,6 +140,8 @@ Di tab **Dashboard**, section **"OrderOnline — Leads & Closing"** menampilkan:
 
 > Nama akun (A1/A2/A3) bisa diganti di `AKUN_ORDERONLINE` pada `Order.gs`.
 
+> **Penamaan produk (produk terbaik) mengacu ke `Impor-RefProduk`.** Karena `product_code` OrderOnline TIDAK unik (mis. `TPT` dipakai *Sikat Punggung* SKU TPT **dan** *Pembesar Layar Hp* SKU PLH), sistem memetakan tiap order lewat **`product_code` + `Variation` → SKU → `Nama Barang JNT`**, lalu dikelompokkan per **SKU**. Jadi produk yang sama menyatu (semua promo), sementara kode yang dipakai >1 produk tetap terpisah benar. Kalau ada order yang belum bisa dipetakan, muncul peringatan *"⚠ N kode belum ada di Ref Produk"* di bawah tabel — tinggal tambahkan baris `product_code`+`Variation`+`SKU`+`Nama Barang JNT` di sheet Impor-RefProduk.
+
 > **Rencana lanjutan:** auto-tarik data langsung dari OrderOnline (tempel token sesi per akun + pilih rentang tanggal + tombol tarik) — akan ditambahkan setelah endpoint export diuji dengan token aktif. Login penuh tidak bisa diotomatiskan (butuh reCAPTCHA), jadi tetap perlu tempel token (berlaku ~7 hari) per akun.
 
 ## Kalau ada perubahan kode nanti

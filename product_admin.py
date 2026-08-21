@@ -72,22 +72,58 @@ def _closing_per_sku(oo_df, ref_df, order_df):
             io = io[io["_sku"].ne("") & io["_sku"].str.lower().ne("nan")]
             oid2sku = io.groupby("_oid")["_sku"].first().to_dict()
 
-    # (2) lookup RefProduk (product_code+variation)→SKU  &  (3) product_code unik→SKU
+    # RefProduk (tabel acuan): product_code+variation→SKU, product_code+nama→SKU,
+    # nama→SKU (global), dan product_code unik→SKU.
+    from collections import defaultdict
     pcvar2sku, pc2sku = {}, {}
+    pc_names = defaultdict(list)      # product_code → [(nama_norm, SKU)]
+    name2sku = []                     # [(nama_norm, SKU)] global (utk nama-only)
+    oo["_pn"] = _norm_var(oo["product"]) if "product" in oo.columns else ""
     if ref_df is not None and len(ref_df):
         rf = ref_df.copy(); rf.columns = [str(c).strip() for c in rf.columns]
         if {"product_code", "SKU"}.issubset(rf.columns):
             rf["_pc"] = rf["product_code"].astype(str).str.strip()
             rf["_sku"] = rf["SKU"].astype(str).str.strip()
             rf["_v"] = _norm_var(rf["Variation"]) if "Variation" in rf.columns else ""
+            rf["_nm"] = _norm_var(rf["Nama Barang JNT"]) if "Nama Barang JNT" in rf.columns else ""
             pcvar2sku = {(r["_pc"], r["_v"]): r["_sku"] for _, r in rf.iterrows()}
             uni = rf.groupby("_pc")["_sku"].nunique()
             pc2sku = {pc: rf.loc[rf["_pc"] == pc, "_sku"].iloc[0] for pc in uni[uni == 1].index}
+            seen = set()
+            for _, r in rf.iterrows():
+                if r["_nm"]:
+                    pc_names[r["_pc"]].append((r["_nm"], r["_sku"]))
+                    key = (r["_nm"], r["_sku"])
+                    if key not in seen:
+                        seen.add(key); name2sku.append(key)
+            name2sku.sort(key=lambda x: len(x[0]), reverse=True)   # nama terpanjang dulu
 
     def _resolve(row):
-        return (oid2sku.get(row["_oid"])
-                or pcvar2sku.get((row["_pc"], row["_v"]))
-                or pc2sku.get(row["_pc"]))
+        # 1) order_id → Import-Order (paling reliable)
+        s = oid2sku.get(row["_oid"])
+        if s:
+            return s
+        pn = row["_pn"]
+        # 2) product_code + NAMA (contains Nama Barang JNT) — validasi berlapis
+        best, blen = None, 0
+        for nm, sku in pc_names.get(row["_pc"], []):
+            if nm and nm in pn and len(nm) > blen:
+                best, blen = sku, len(nm)
+        if best:
+            return best
+        # 3) product_code+variation dari RefProduk
+        s = pcvar2sku.get((row["_pc"], row["_v"]))
+        if s:
+            return s
+        # 4) product_code unik
+        s = pc2sku.get(row["_pc"])
+        if s:
+            return s
+        # 5) NAMA saja (contains) — bila product_code tak dikenal
+        for nm, sku in name2sku:
+            if nm and nm in pn:
+                return sku
+        return None
     oo["_sku"] = oo.apply(_resolve, axis=1)
 
     paid = oo.get("payment_status", pd.Series("", index=oo.index)).astype(str).str.lower().eq("paid")

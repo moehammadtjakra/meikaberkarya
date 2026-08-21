@@ -14,7 +14,7 @@
 // Dinaikkan SETIAP kali deploy versi baru. Halaman yang sedang terbuka
 // membandingkan versinya dengan versi di server; kalau beda -> banner "versi
 // baru" muncul dan user cukup klik "Muat ulang" (tanpa hapus cache manual).
-var APP_VERSION = 'v1.6 — produk closing rate pakai nama kanonik dari Ref Produk';
+var APP_VERSION = 'v1.7 — produk dipetakan via (product_code+variation)->SKU (kode tak-unik ditangani)';
 
 // ---------------------------------------------------------------------------
 // KONFIGURASI

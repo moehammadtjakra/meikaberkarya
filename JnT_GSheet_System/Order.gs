@@ -390,39 +390,90 @@ var ORDER_REF = {
   stok:  ['Import-Stock', 'Impor-Stock', 'Stok', 'Stock']
 };
 
+/** Normalisasi teks variasi: huruf kecil, buang semua non-alfanumerik.
+ *  "Ambil Promo: Beli 1 Gratis 1 = Rp. 65.000" -> "ambilpromobeli1gratis1rp65000" */
+function normVar_(s) { return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]/g, ''); }
+
 /**
- * Peta product_code (huruf besar) -> NAMA PRODUK KANONIK.
- * Sumber utama: Impor-RefProduk (product_code -> "Nama Barang JNT").
- * Cadangan   : Import-Stock (SKU -> "Nama Produk").
- * Dipakai supaya "produk terbaik" tampil bersih & seragam, bukan teks promo
- * OrderOnline yang beragam ("((Gelang Retro…))", "…Beli 1 Gratis 1").
+ * Bangun acuan produk dari Impor-RefProduk (SUMBER KEBENARAN untuk product_code
+ * & SKU). PENTING: product_code TIDAK unik — TPT dipakai "Sikat Punggung" (SKU
+ * TPT) DAN "Pembesar Layar Hp" (SKU PLH), dibedakan oleh kolom Variation. Maka
+ * kunci yang benar = (product_code + Variation) -> SKU -> Nama Barang JNT.
+ *
+ * @return {Object} {
+ *   byCodeVar: { 'TPT||<normVar>': {sku, nama} },   // pencocokan utama
+ *   byCode:    { 'TPT': [ {sku, nama}, … ] },        // untuk deteksi ambiguitas
+ *   bySku:     { 'PLH': 'Pembesar Layar Hp' }        // SKU -> nama kanonik
+ * }
  */
 function petaProdukKanonik_() {
   var ss = getSpreadsheet();
-  var map = {};
+  var out = { byCodeVar: {}, byCode: {}, bySku: {} };
   var pilih = function (names) {
     for (var i = 0; i < names.length; i++) { var sh = ss.getSheetByName(names[i]); if (sh) return sh; }
     return null;
   };
-  var serap = function (sh, kolKode, kolNamaKandidat) {
-    if (!sh || sh.getLastRow() < 2) return;
-    var h = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(function (x) { return String(x).trim(); });
-    var ik = h.indexOf(kolKode);
-    var inx = -1;
-    kolNamaKandidat.forEach(function (nm) { if (inx < 0) inx = h.indexOf(nm); });
-    if (ik < 0 || inx < 0) return;
-    sh.getRange(2, 1, sh.getLastRow() - 1, h.length).getValues().forEach(function (r) {
-      var c = String(r[ik] == null ? '' : r[ik]).trim().toUpperCase();
-      var n = String(r[inx] == null ? '' : r[inx]).trim();
-      if (c && n && !map[c]) map[c] = n;      // sumber pertama menang
-    });
-  };
-  serap(pilih(ORDER_REF.ref),  'product_code', ['Nama Barang JNT', 'Nama Produk']);
-  serap(pilih(ORDER_REF.stok), 'SKU',          ['Nama Produk', 'Nama Barang JNT']);
-  return map;
+
+  // --- Impor-RefProduk: product_code + Variation -> SKU + Nama Barang JNT ---
+  var ref = pilih(ORDER_REF.ref);
+  if (ref && ref.getLastRow() > 1) {
+    var h = ref.getRange(1, 1, 1, ref.getLastColumn()).getValues()[0].map(function (x) { return String(x).trim(); });
+    var ic = h.indexOf('product_code'), iv = h.indexOf('Variation'), isk = h.indexOf('SKU'),
+        inm = h.indexOf('Nama Barang JNT');
+    if (inm < 0) inm = h.indexOf('Nama Produk');
+    if (ic >= 0 && isk >= 0 && inm >= 0) {
+      ref.getRange(2, 1, ref.getLastRow() - 1, h.length).getValues().forEach(function (r) {
+        var code = String(r[ic] == null ? '' : r[ic]).trim().toUpperCase();
+        var sku  = String(r[isk] == null ? '' : r[isk]).trim().toUpperCase();
+        var nama = String(r[inm] == null ? '' : r[inm]).trim();
+        var nv   = iv >= 0 ? normVar_(r[iv]) : '';
+        if (!code || !sku || !nama) return;
+        out.byCodeVar[code + '||' + nv] = { sku: sku, nama: nama };
+        if (!out.bySku[sku]) out.bySku[sku] = nama;
+        if (!out.byCode[code]) out.byCode[code] = [];
+        if (!out.byCode[code].some(function (x) { return x.sku === sku; }))
+          out.byCode[code].push({ sku: sku, nama: nama });
+      });
+    }
+  }
+
+  // --- Import-Stock: SKU -> Nama Produk (lengkapi nama SKU yang belum ada) ---
+  var stk = pilih(ORDER_REF.stok);
+  if (stk && stk.getLastRow() > 1) {
+    var h2 = stk.getRange(1, 1, 1, stk.getLastColumn()).getValues()[0].map(function (x) { return String(x).trim(); });
+    var is2 = h2.indexOf('SKU'), in2 = h2.indexOf('Nama Produk');
+    if (is2 >= 0 && in2 >= 0) {
+      stk.getRange(2, 1, stk.getLastRow() - 1, h2.length).getValues().forEach(function (r) {
+        var sku = String(r[is2] == null ? '' : r[is2]).trim().toUpperCase();
+        var n   = String(r[in2] == null ? '' : r[in2]).trim();
+        if (sku && n && !out.bySku[sku]) out.bySku[sku] = n;
+      });
+    }
+  }
+  return out;
 }
 
-/** Bersihkan teks produk OrderOnline (buang kurung & spasi berlebih) — cadangan bila kode tak ada di ref. */
+/**
+ * Tentukan produk kanonik satu baris OrderOnline.
+ * Prioritas: (code+variation) exact -> code unik (1 SKU) -> teks produk bersih.
+ * @return {Object} { sku, nama, tanpaRef:boolean }
+ */
+function resolveProduk_(code, variation, productText, peta) {
+  code = String(code == null ? '' : code).trim().toUpperCase();
+  var nv = normVar_(variation);
+
+  if (code) {
+    var hit = peta.byCodeVar[code + '||' + nv];
+    if (hit) return { sku: hit.sku, nama: hit.nama, tanpaRef: false };
+    var list = peta.byCode[code] || [];
+    if (list.length === 1) return { sku: list[0].sku, nama: list[0].nama, tanpaRef: false };
+    // kode ambigu tapi variasi tak cocok -> jangan tebak; tandai perlu perbaikan
+  }
+  var bersih = bersihProduk_(productText) || code || '(tanpa nama produk)';
+  return { sku: '', nama: bersih, tanpaRef: true, kode: code };
+}
+
+/** Bersihkan teks produk OrderOnline (buang kurung & spasi berlebih) — cadangan bila tak ada di ref. */
 function bersihProduk_(s) {
   var x = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
   x = x.replace(/^[\(\[\{\s]+/, '').replace(/[\)\]\}\s]+$/, '').trim();
@@ -465,15 +516,14 @@ function getDashOrder(f) {
 
     if (akun[a]) { akun[a].leads++; if (paid) akun[a].closing++; }
 
-    // NAMA PRODUK KANONIK dari product_code; kalau kode tak ada di ref, pakai
-    // teks produk yang dibersihkan; grouping tetap per-kode supaya varian promo
-    // dari produk sama menyatu.
-    var code = String(r['product_code'] == null ? '' : r['product_code']).trim().toUpperCase();
-    var kanonik = (code && peta[code]) ? peta[code]
-                : (bersihProduk_(r['product']) || code || '(tanpa nama produk)');
-    var gk = code ? ('C:' + code) : ('N:' + kanonik.toLowerCase());
-    if (code && !peta[code]) tanpaRef[code] = kanonik;       // kode belum ada di Ref Produk
-    if (!prod[gk]) prod[gk] = { product: kanonik, kode: code, leads: 0, closing: 0 };
+    // NAMA PRODUK KANONIK lewat (product_code + variation) -> SKU -> nama.
+    // Dikelompokkan per SKU supaya produk yang sama (beda promo) menyatu, DAN
+    // product_code yang dipakai >1 produk (mis. TPT) tetap terpisah dengan benar.
+    var res = resolveProduk_(r['product_code'], r['variation'], r['product'], peta);
+    var gk = res.sku ? ('S:' + res.sku) : ('N:' + res.nama.toLowerCase());
+    if (res.tanpaRef && (res.kode || res.nama))
+      tanpaRef[(res.kode || res.nama)] = res.nama;           // perlu ditambahkan ke Ref Produk
+    if (!prod[gk]) prod[gk] = { product: res.nama, sku: res.sku, leads: 0, closing: 0 };
     prod[gk].leads++; if (paid) prod[gk].closing++;
 
     if (tgl) {
@@ -501,9 +551,9 @@ function getDashOrder(f) {
     var o = bulan[k]; o.rate = pct_(o.closing, o.leads); return o;
   });
 
-  // kode produk yang belum ada padanannya di Ref Produk (biar bisa ditambahkan)
+  // kode/varian produk yang belum bisa dipetakan ke Ref Produk (biar bisa ditambahkan)
   out.kodeTanpaRef = Object.keys(tanpaRef).map(function (c) { return c + ' — ' + tanpaRef[c]; });
-  out.refAda = Object.keys(peta).length;
+  out.refAda = Object.keys(peta.bySku).length;   // jumlah SKU dikenal di acuan
   return out;
 }
 
