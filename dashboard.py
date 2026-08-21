@@ -211,10 +211,21 @@ tab1, tab4, tab2, tab3 = st.tabs(["💰 Modul 1 — Simulator Cashflow & Pencair
                                   "📦 Modul 4 — Analisis Produk"])
 
 # ---- katalog produk dari sheet admin (Order + Stock + retur + OrderOnline closing) ----
-_catalog = padmin.build_catalog(data.get("order"), data.get("stock"), df_all,
-                                data.get("oo"), data.get("ref"))
+try:
+    _catalog = padmin.build_catalog(data.get("order"), data.get("stock"), df_all,
+                                    data.get("oo"), data.get("ref"))
+except Exception as _ce:
+    try:
+        _catalog = padmin.build_catalog(data.get("order"), data.get("stock"), df_all)
+    except Exception:
+        _catalog = pd.DataFrame()
+    st.warning(f"Katalog produk dari sheet admin gagal sebagian ({type(_ce).__name__}); "
+               "memakai data seadanya. Cek tab Import-Order/Stock/OrderOnline/RefProduk.")
 # Closing rate GLOBAL dari OrderOnline (paid & completed/processing ÷ total leads) — default slider
-_OO_CLOSING = padmin.global_closing_rate(data.get("oo"))
+try:
+    _OO_CLOSING = padmin.global_closing_rate(data.get("oo"))
+except Exception:
+    _OO_CLOSING = None
 # Kolom input (editable) + kolom turunan (disabled)
 _INCOLS = ["Produk", "Budget/Hari", "CPL", "Nilai Produk", "HPP", "Stok (pcs)", "Pcs/Order"]
 _DERIVED = ["Total Resi", "Closing Rate", "Pcs Terjual", "CM", "CM%", "Retur %"]

@@ -145,31 +145,35 @@ def build_catalog(order_df: pd.DataFrame | None,
 
     # --- Retur per SKU: join order (No. Waybill) ↔ all_resi (waybill) ---
     agg["retur_pct"] = np.nan
-    if (all_resi is not None and len(all_resi) and "No. Waybill" in o.columns
-            and "waybill" in all_resi.columns):
-        def _wb(s):
-            return s.astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
-        wb = pd.DataFrame({"SKU": o["SKU"].values, "wb": _wb(o["No. Waybill"])})
-        ar = pd.DataFrame({"wb": _wb(all_resi["waybill"])})
-        ar["is_retur"] = (all_resi["is_retur"].values if "is_retur" in all_resi else False)
-        ar["is_sampai"] = (all_resi["is_sampai"].values if "is_sampai" in all_resi else False)
-        j = wb.merge(ar, on="wb", how="left")
-        gg = (j.groupby("SKU")
-                .agg(sampai=("is_sampai", "sum"), retur=("is_retur", "sum")).reset_index())
-        gg["den"] = gg["sampai"] + gg["retur"]
-        # bagi lewat denominator yang 0-nya diganti NaN → tak ada ZeroDivisionError
-        _den = _num(gg["den"]).replace(0, np.nan)
-        gg["retur_pct"] = _num(gg["retur"]) / _den * 100
-        agg = agg.drop(columns=["retur_pct"]).merge(
-            gg[["SKU", "retur_pct"]], on="SKU", how="left")
+    try:
+        if (all_resi is not None and len(all_resi) and "No. Waybill" in o.columns
+                and "waybill" in all_resi.columns):
+            def _wb(s):
+                return s.astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
+            wb = pd.DataFrame({"SKU": o["SKU"].values, "wb": _wb(o["No. Waybill"])})
+            ar = pd.DataFrame({"wb": _wb(all_resi["waybill"])})
+            ar["is_retur"] = (all_resi["is_retur"].values if "is_retur" in all_resi else False)
+            ar["is_sampai"] = (all_resi["is_sampai"].values if "is_sampai" in all_resi else False)
+            j = wb.merge(ar, on="wb", how="left")
+            gg = (j.groupby("SKU")
+                    .agg(sampai=("is_sampai", "sum"), retur=("is_retur", "sum")).reset_index())
+            _den = _num(gg["sampai"] + gg["retur"]).replace(0, np.nan)
+            gg["retur_pct"] = _num(gg["retur"]) / _den * 100
+            agg = agg.drop(columns=["retur_pct"]).merge(
+                gg[["SKU", "retur_pct"]], on="SKU", how="left")
+    except Exception:
+        agg["retur_pct"] = np.nan
     agg["retur_pct"] = _num(agg["retur_pct"]).round(1)
 
     # --- Closing rate per SKU dari OrderOnline ---
     agg["closing_rate"] = np.nan
-    _clo = _closing_per_sku(oo_df, ref_df)
-    if _clo is not None and len(_clo):
-        agg = agg.drop(columns=["closing_rate"]).merge(_clo, on="SKU", how="left")
-    agg["closing_rate"] = _num(agg["closing_rate"]).round(1)
+    try:
+        _clo = _closing_per_sku(oo_df, ref_df)
+        if _clo is not None and len(_clo):
+            agg = agg.drop(columns=["closing_rate"]).merge(_clo, on="SKU", how="left")
+    except Exception:
+        agg["closing_rate"] = np.nan
+    agg["closing_rate"] = _num(agg.get("closing_rate")).round(1)
     return agg.sort_values("n_orders", ascending=False).reset_index(drop=True)
 
 
