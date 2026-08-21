@@ -442,19 +442,16 @@ with tab1:
         edited = st.data_editor(
             st.session_state["produk_master"], num_rows="dynamic", width='stretch',
             height=320, key="editor_master", column_config=_colcfg)
-        # Hitung ulang kolom turunan (CM, CM%, Laba/Order) LIVE dari input terbaru — termasuk CPL.
-        # Hanya kolom disabled yang ditimpa (kolom input dipegang widget → tanpa lag 2x-Enter).
-        _ed = _recompute_derived(edited, ongkir, cashback_pct, cod_fee_pct, opex_var_resi,
-                                 closing, success)
+        # LIVE-UPDATE kolom turunan: hitung ulang CM & CM% dari input terbaru (termasuk CPL),
+        # tulis-balik SELURUH tabel (input + turunan) lalu redraw sekali agar konsisten.
+        _ed = _recompute_derived(edited, ongkir, cashback_pct, cod_fee_pct,
+                                 opex_var_resi, closing).reset_index(drop=True)
         _pm = st.session_state["produk_master"]
-        if len(_ed) == len(_pm):
-            _dk = lambda dfx: dfx[_DERIVED].round(1).fillna(-9e9).values.tolist()
-            if _dk(_pm) != _dk(_ed):
-                for _c in _DERIVED:
-                    _pm[_c] = _ed[_c].values
-                st.rerun()
-        else:
-            st.session_state["produk_master"] = _ed     # struktur berubah (tambah/hapus baris)
+        _same = (_ed.shape == _pm.shape) and bool(
+            (_ed.astype(str).values == _pm.reset_index(drop=True).astype(str).values).all())
+        if not _same:
+            st.session_state["produk_master"] = _ed
+            st.rerun()
         st.session_state["produk_current"] = _ed        # snapshot utk Planning
         edited = _ed
 
