@@ -364,10 +364,11 @@ with tab1:
                                        value=round(baseline["cashback_pct"] * 100, 1), step=0.5,
                                        help="Cashback ongkir (Biaya Diskon) sbg omzet.")
         durasi_kirim = g2.number_input(
-            "Rata² Durasi Kirim (hari)", 1.0, 60.0, key="p_durasi",
+            "Rata² Durasi Kirim Berhasil (hari)", 1.0, 60.0, key="p_durasi",
             value=round(float(baseline.get("avg_durasi") or 7), 1), step=0.5,
-            help="Rata-rata lama paket dari pickup s/d sampai di alamat tujuan. Menentukan tanggal "
-                 "paket diterima → memicu jadwal pencairan COD. Makin lama durasi, makin lambat cair.")
+            help="Rata-rata lama paket dari pickup s/d SAMPAI di konsumen — HANYA paket sukses "
+                 "sampai (retur & yang masih transit tidak dihitung). Default dari histori. "
+                 "Menentukan tanggal paket diterima → memicu jadwal pencairan COD.")
         pct_cod = g3.slider("Order COD (%)", 0, 100, int(round(baseline["pct_cod"] * 100)), key="p_pctcod")
         cod_fee_pct = g3.number_input("COD Fee (%)", 0.0, 10.0, key="p_codfee",
                                       value=round(baseline["cod_fee_rate"] * 100, 2), step=0.05)

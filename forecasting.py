@@ -29,6 +29,8 @@ def compute_baseline(df: pd.DataFrame) -> dict:
 
     sampai = df["is_sampai"].sum() if "is_sampai" in df else 0
     cod_mask = df["is_cod"] if "is_cod" in df else pd.Series(True, index=df.index)
+    # durasi kirim: HANYA paket sukses sampai (retur/transit tidak dihitung)
+    sampai_mask = df["is_sampai"] if "is_sampai" in df else None
 
     def _mean(col, mask=None, default=0.0):
         if col not in df:
@@ -47,7 +49,7 @@ def compute_baseline(df: pd.DataFrame) -> dict:
         "avg_proyeksi_net": _mean("proyeksi_net", default=100_000),
         "avg_nilai_cod": _mean("nilai_cod", cod_mask, default=145_000),
         "avg_cod_fee": _mean("cod_fee", cod_mask, default=0),
-        "avg_durasi": _mean("durasi_kirim", default=config.DEFAULTS["avg_durasi"]),
+        "avg_durasi": _mean("durasi_kirim", sampai_mask, default=config.DEFAULTS["avg_durasi"]),
         "success_rate": round(sampai / n, 4) if n else config.DEFAULTS["success_rate"],
         "pct_cod": round(float(cod_mask.mean()), 4) if n else config.DEFAULTS["pct_cod"],
     }
@@ -77,10 +79,11 @@ def durasi_by_region(df: pd.DataFrame, level: str = "provinsi") -> pd.DataFrame:
 
 
 def receive_distribution(df: pd.DataFrame) -> pd.Series:
-    """Distribusi probabilitas jeda (hari) antara kirim dan diterima."""
+    """Distribusi probabilitas jeda (hari) kirim→diterima, HANYA paket sukses sampai."""
     if "durasi_kirim" not in df:
         return pd.Series(dtype=float)
-    d = df["durasi_kirim"].dropna()
+    src = df.loc[df["is_sampai"]] if "is_sampai" in df else df   # hanya yang sampai
+    d = src["durasi_kirim"].dropna()
     d = d[(d >= 0) & (d <= 60)].round().astype(int)
     if d.empty:
         return pd.Series(dtype=float)
