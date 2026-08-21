@@ -161,6 +161,213 @@ function upsertOrder_(batches) {
 }
 
 // ===========================================================================
+// AUTO-TARIK dari API OrderOnline (token sesi ditempel per akun)
+//
+// Login penuh TIDAK bisa diotomatiskan (butuh reCAPTCHA). Tapi endpoint export
+// cukup pakai Bearer JWT -> user tempel token per akun (berlaku ~7 hari),
+// pilih rentang tanggal, klik Tarik -> data langsung masuk sheet OrderOnline.
+// ===========================================================================
+var ORDER_API = {
+  exportUrl: 'https://reconcile.orderonline.id/submission/export',
+  origin:  'https://app.orderonline.id',
+  referer: 'https://app.orderonline.id/',
+  ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+      '(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36'
+};
+var ORDER_TOKEN_PROP = 'oo_token_';   // + akun (mis. oo_token_A1)
+
+function potongOO_(s, n) {
+  s = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+  return s.length > n ? s.slice(0, n) + '…' : (s || '(kosong)');
+}
+
+/** Ambil klaim exp (epoch detik) dari JWT, atau null. */
+function jwtExp_(token) {
+  try {
+    var p = String(token).split('.')[1];
+    p = p.replace(/-/g, '+').replace(/_/g, '/');
+    while (p.length % 4) p += '=';
+    var obj = JSON.parse(Utilities.newBlob(Utilities.base64Decode(p)).getDataAsString());
+    return obj.exp || null;
+  } catch (e) { return null; }
+}
+
+function bersihToken_(s) {
+  return String(s || '').trim().replace(/^authorization\s*:\s*/i, '').replace(/^bearer\s+/i, '').replace(/^['"]|['"]$/g, '').trim();
+}
+
+/** Panel token: simpan token satu akun. */
+function simpanTokenOrder(akun, token) {
+  akun = String(akun || '').trim();
+  if (AKUN_ORDERONLINE.indexOf(akun) < 0) throw new Error('Akun tidak dikenal: ' + akun);
+  token = bersihToken_(token);
+  if (!token) throw new Error('Token kosong.');
+  if (token.split('.').length !== 3) throw new Error('Token bukan JWT (harus ada 2 titik). Salin nilai setelah "Bearer ".');
+  PropertiesService.getScriptProperties().setProperty(ORDER_TOKEN_PROP + akun, JSON.stringify({
+    token: token, disimpan: new Date().toISOString(), oleh: (Session.getActiveUser().getEmail() || '')
+  }));
+  return statusTokenOrder();
+}
+function hapusTokenOrder(akun) {
+  PropertiesService.getScriptProperties().deleteProperty(ORDER_TOKEN_PROP + String(akun || '').trim());
+  return statusTokenOrder();
+}
+function bacaTokenOrder_(akun) {
+  var s = PropertiesService.getScriptProperties().getProperty(ORDER_TOKEN_PROP + akun);
+  if (!s) return null;
+  try { return JSON.parse(s); } catch (e) { return null; }
+}
+
+/** Status semua akun (untuk UI) — token disamarkan, plus info kedaluwarsa. */
+function statusTokenOrder() {
+  var tz = Session.getScriptTimeZone() || 'Asia/Jakarta';
+  return AKUN_ORDERONLINE.map(function (a) {
+    var o = bacaTokenOrder_(a);
+    if (!o || !o.token) return { akun: a, ada: false };
+    var exp = jwtExp_(o.token);
+    var kedaluwarsa = exp ? (exp * 1000 < Date.now()) : false;
+    return {
+      akun: a, ada: true, ekor: '…' + o.token.slice(-8),
+      exp: exp ? Utilities.formatDate(new Date(exp * 1000), tz, 'dd/MM/yyyy HH:mm') : '',
+      kedaluwarsa: kedaluwarsa,
+      sisaJam: exp ? Math.round((exp * 1000 - Date.now()) / 36e5) : null,
+      oleh: o.oleh || ''
+    };
+  });
+}
+
+/**
+ * Panggil endpoint export untuk satu akun & rentang tanggal.
+ * @return {Object} { rows:[...objek...], via:'xlsx'|'json' }  atau  { _error, ... }
+ */
+function ambilExportOrder_(token, since, until) {
+  var url = ORDER_API.exportUrl +
+    '?limit=1000000&sort_by=created_at&sort=desc&page=1' +
+    '&since=' + encodeURIComponent(since) + '&until=' + encodeURIComponent(until) +
+    '&timestamp=' + Date.now() + '&use_cache_header=false&file_type=excel';
+
+  var resp = UrlFetchApp.fetch(url, {
+    method: 'get', muteHttpExceptions: true, followRedirects: true,
+    headers: {
+      'authorization': 'Bearer ' + token,
+      'accept': 'application/json, text/plain, */*',
+      'origin': ORDER_API.origin, 'referer': ORDER_API.referer,
+      'user-agent': ORDER_API.ua
+    }
+  });
+
+  var code = resp.getResponseCode();
+  if (code === 401 || code === 403)
+    return { _error: 'HTTP ' + code + ' — token ditolak/kedaluwarsa. Tempel ulang token akun ini.' };
+  if (code !== 200) return { _error: 'HTTP ' + code + ' — ' + potongOO_(resp.getContentText(), 220) };
+
+  var bytes = resp.getContent();
+  var headers = resp.getAllHeaders();
+  var ct = String(headers['Content-Type'] || headers['content-type'] || '');
+
+  // xlsx = arsip ZIP, diawali "PK" (0x50 0x4B)
+  var isZip = bytes.length > 1 && (bytes[0] & 0xff) === 0x50 && (bytes[1] & 0xff) === 0x4B;
+  if (isZip || /spreadsheet|excel|officedocument|octet-stream/i.test(ct)) {
+    var rows = readUploadedSheet(Utilities.base64Encode(bytes), 'oo_export.xlsx');
+    return { rows: rows, via: 'xlsx' };
+  }
+
+  // kalau bukan xlsx, coba JSON
+  var teks = resp.getContentText();
+  try {
+    var j = JSON.parse(teks);
+    var arr = Array.isArray(j) ? j
+      : (j && Array.isArray(j.data) ? j.data
+      : (j && j.data && Array.isArray(j.data.data) ? j.data.data
+      : (j && Array.isArray(j.rows) ? j.rows : null)));
+    if (arr) return { rows: arr, via: 'json' };
+    // mungkin balasan berisi URL file untuk diunduh
+    var link = (j && (j.url || (j.data && (j.data.url || j.data.link)))) || '';
+    if (link) {
+      var r2 = UrlFetchApp.fetch(link, { muteHttpExceptions: true });
+      if (r2.getResponseCode() === 200)
+        return { rows: readUploadedSheet(Utilities.base64Encode(r2.getContent()), 'oo_export.xlsx'), via: 'xlsx-url' };
+    }
+    return { _error: 'Balasan JSON tak dikenal strukturnya: ' + potongOO_(teks, 300) };
+  } catch (e) {
+    return { _error: 'Balasan bukan xlsx maupun JSON (Content-Type: ' + ct + '): ' + potongOO_(teks, 300) };
+  }
+}
+
+/** Tarik & simpan ke sheet OrderOnline untuk satu akun. */
+function tarikOrderOnline(akun, since, until) {
+  akun = String(akun || '').trim();
+  if (AKUN_ORDERONLINE.indexOf(akun) < 0) throw new Error('Akun tidak dikenal: ' + akun);
+  since = String(since || '').trim(); until = String(until || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(since) || !/^\d{4}-\d{2}-\d{2}$/.test(until))
+    throw new Error('Rentang tanggal wajib diisi (format yyyy-mm-dd).');
+
+  var o = bacaTokenOrder_(akun);
+  if (!o || !o.token) throw new Error('Token akun ' + akun + ' belum ada. Tempel token dulu.');
+  var exp = jwtExp_(o.token);
+  if (exp && exp * 1000 < Date.now()) throw new Error('Token akun ' + akun + ' sudah kedaluwarsa. Tempel token baru.');
+
+  var res = ambilExportOrder_(o.token, since, until);
+  if (res._error) throw new Error(res._error);
+
+  var out = res.rows.map(function (src) { return bangunBarisOrder_(src, akun); })
+                    .filter(function (r) { return r; });
+  if (!out.length) throw new Error('Tidak ada order pada rentang ' + since + ' → ' + until +
+    ' untuk akun ' + akun + '. (Balasan terbaca via ' + res.via + ', ' + res.rows.length + ' baris mentah.)');
+
+  var r = upsertOrder_([{ name: 'API ' + since + '..' + until, rows: out, jumlah: res.rows.length }]);
+  try { dashCacheClear_(); } catch (e) {}
+  try { CacheService.getScriptCache().remove('dashOrder'); } catch (e) {}
+
+  return { akun: akun, since: since, until: until, via: res.via,
+           ditarik: res.rows.length, disimpan: out.length,
+           added: r.added, updated: r.updated, total: r.total };
+}
+
+/**
+ * DIAGNOSTIK — lihat balasan MENTAH endpoint export (tanpa menyimpan apa pun).
+ * Jalankan ini dulu kalau tarik gagal, lalu kirim hasilnya supaya parsing
+ * bisa disesuaikan. Bisa dipanggil dari editor atau dari tombol di UI.
+ */
+function tesTarikOrderMentah(akun, since, until) {
+  akun = String(akun || AKUN_ORDERONLINE[0]).trim();
+  var o = bacaTokenOrder_(akun);
+  if (!o || !o.token) return 'Token akun ' + akun + ' belum ada.';
+  since = since || Utilities.formatDate(new Date(Date.now() - 7 * 864e5), Session.getScriptTimeZone() || 'Asia/Jakarta', 'yyyy-MM-dd');
+  until = until || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Jakarta', 'yyyy-MM-dd');
+
+  var url = ORDER_API.exportUrl + '?limit=1000000&sort_by=created_at&sort=desc&page=1' +
+    '&since=' + encodeURIComponent(since) + '&until=' + encodeURIComponent(until) +
+    '&timestamp=' + Date.now() + '&use_cache_header=false&file_type=excel';
+  var resp = UrlFetchApp.fetch(url, {
+    method: 'get', muteHttpExceptions: true, followRedirects: true,
+    headers: { 'authorization': 'Bearer ' + o.token, 'accept': 'application/json, text/plain, */*',
+               'origin': ORDER_API.origin, 'referer': ORDER_API.referer, 'user-agent': ORDER_API.ua }
+  });
+  var bytes = resp.getContent();
+  var headers = resp.getAllHeaders();
+  var ct = String(headers['Content-Type'] || headers['content-type'] || '');
+  var isZip = bytes.length > 1 && (bytes[0] & 0xff) === 0x50 && (bytes[1] & 0xff) === 0x4B;
+  var out = 'Akun         : ' + akun + '\n' +
+            'Rentang      : ' + since + ' → ' + until + '\n' +
+            'HTTP         : ' + resp.getResponseCode() + '\n' +
+            'Content-Type : ' + ct + '\n' +
+            'Ukuran       : ' + bytes.length + ' byte\n' +
+            'Terdeteksi   : ' + (isZip ? 'FILE XLSX (ZIP) ✔' : 'bukan xlsx') + '\n';
+  if (isZip) {
+    try {
+      var rows = readUploadedSheet(Utilities.base64Encode(bytes), 'oo_export.xlsx');
+      out += 'Baris terbaca: ' + rows.length + '\n' +
+             'Kolom        : ' + (rows.length ? Object.keys(rows[0]).slice(0, 12).join(', ') + '…' : '(kosong)');
+    } catch (e) { out += 'Gagal baca xlsx: ' + e.message; }
+  } else {
+    out += '--- CUPLIKAN BALASAN ---\n' + potongOO_(resp.getContentText(), 1200);
+  }
+  Logger.log(out);
+  return out;
+}
+
+// ===========================================================================
 // DASHBOARD ORDERONLINE — leads, closing (paid), closing rate, produk terbaik
 // ===========================================================================
 var ORDER_MIN_LEADS = 10;    // ambang minimal leads agar closing rate produk bermakna

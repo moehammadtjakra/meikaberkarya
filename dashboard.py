@@ -214,7 +214,7 @@ tab1, tab4, tab2, tab3 = st.tabs(["💰 Modul 1 — Simulator Cashflow & Pencair
 _catalog = padmin.build_catalog(data.get("order"), data.get("stock"), df_all)
 # Kolom input (editable) + kolom turunan (disabled)
 _INCOLS = ["Produk", "Budget/Hari", "CPL", "Nilai Produk", "HPP", "Stok (pcs)", "Pcs/Order"]
-_DERIVED = ["Total Order", "Pcs Terjual", "CM", "CM%", "Retur %"]
+_DERIVED = ["Total Resi", "Pcs Terjual", "CM", "CM%", "Retur %"]
 _PCOLS = _INCOLS + _DERIVED
 # kunci widget input yang disimpan/dimuat oleh fitur Planning
 _PLAN_KEYS = ["in_modal", "sim_start", "sim_end", "p_closing", "p_success", "p_ncs",
@@ -242,7 +242,7 @@ def seed_master(params: dict | None = None):
     t["Pcs/Order"] = 1
     _nj = pd.to_numeric(t["Nilai Produk"], errors="coerce").fillna(0)
     _hp = pd.to_numeric(t["HPP"], errors="coerce").fillna(0)
-    t["Total Order"] = 0
+    t["Total Resi"] = 0
     t["Pcs Terjual"] = 0
     t["CM"] = (_nj - _hp).round().astype(int)
     t["CM%"] = ((_nj - _hp) / _nj.replace(0, np.nan) * 100).round(1)
@@ -380,7 +380,7 @@ with tab1:
                 else "histori All Resi (sheet admin tidak tersedia)")
         cap, btn = st.columns([5, 1])
         cap.caption(f"Sumber: **{_src}**. **✏️ = bisa diedit** (Budget, CPL, Nilai Jual, HPP, Stok, "
-                    "Pcs/Order) • **🔒 = otomatis, tidak bisa diedit** (Total Order, Pcs Terjual, CM, "
+                    "Pcs/Order) • **🔒 = otomatis, tidak bisa diedit** (Total Resi, Pcs Terjual, CM, "
                     "CM%, Retur %). CM & CM% **live-update** saat Anda ubah CPL/Closing/Nilai Jual/HPP. "
                     "Geser ke kanan untuk melihat semua kolom.")
         if btn.button("🎯 Re-plot optimal", width='stretch',
@@ -406,9 +406,10 @@ with tab1:
             "Budget/Hari": _money("✏️ Budget/Hari (Rp)"),
             "CPL": _money("✏️ CPL (Rp)"),
             "Nilai Produk": st.column_config.NumberColumn(
-                "✏️ Nilai Jual / AoV (Rp)", min_value=0, format="localized",
-                help="Average Order Value = nilai jual total produk per order (product_price), "
-                     "sudah termasuk jumlah pcs dalam 1 resi."),
+                "✏️ Nilai Jual / AoV per Resi (Rp)", min_value=0, format="localized",
+                help="AoV (Average Order Value) = nilai jual total produk PER RESI/ORDER "
+                     "(product_price), sudah mencakup berapa pun jumlah pcs dalam 1 resi — "
+                     "jadi ini nilai per resi, BUKAN per pcs."),
             "HPP": st.column_config.NumberColumn(
                 "✏️ HPP (Rp)", min_value=0, format="localized",
                 help="Harga pokok per order = Pcs/Order × HPP per Pcs (dari Import-Stock)."),
@@ -416,7 +417,7 @@ with tab1:
                                                 "menimbulkan biaya beli produk."),
             "Pcs/Order": _int("✏️ Pcs/Order", "Rata-rata pcs produk utama per order (untuk "
                                               "menghitung berapa order yang bisa dipenuhi stok)."),
-            "Total Order": st.column_config.NumberColumn("🔒 Total Order", disabled=True,
+            "Total Resi": st.column_config.NumberColumn("🔒 Total Resi", disabled=True,
                 format="localized",
                 help="Jumlah transaksi/resi produk ini sejauh ini (dari Import-Order). "
                      "Otomatis dari data — tidak bisa diedit."),

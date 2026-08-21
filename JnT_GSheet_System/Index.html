@@ -120,6 +120,12 @@
     @media(max-width:700px){ .oobar{grid-template-columns:1fr 1fr;} }
     .ratebar{display:inline-block;height:8px;border-radius:5px;background:var(--jt);vertical-align:middle;margin-right:6px;}
     .ratewrap{display:inline-block;width:70px;height:8px;border-radius:5px;background:#eef2f7;vertical-align:middle;margin-right:6px;overflow:hidden;}
+    .ootarik{border-top:1px dashed var(--line);margin-top:16px;padding-top:6px;}
+    .tokrow{border:1px solid var(--line);border-radius:9px;padding:9px 11px;margin-top:8px;background:#fbfcfd;}
+    .tokhd{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;}
+    .link2{background:none;border:0;color:var(--jt);font-weight:600;cursor:pointer;font-size:12.5px;margin-left:auto;padding:0;}
+    .tokedit{margin-top:8px;}
+    .tokedit textarea{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;}
   </style>
 </head>
 <body>
@@ -200,6 +206,40 @@
           <button class="ghost" onclick="clearFiles('order')">Kosongkan</button>
         </div>
         <div class="msg" id="msgOrder"></div>
+
+        <!-- ===== Auto-tarik dari API OrderOnline ===== -->
+        <div class="ootarik">
+          <div class="mt" style="font-size:14px;margin-top:16px;">⇩ Tarik Otomatis dari OrderOnline (tanpa export manual)</div>
+          <p class="d" style="margin-top:4px;">Tempel <b>token sesi</b> tiap akun (dari browser, berlaku ~7 hari),
+            pilih rentang tanggal, lalu klik <b>Tarik</b> — data langsung masuk ke sheet OrderOnline.
+            Cara ambil token ada di <a href="#" onclick="return tglCaraToken()">panduan singkat</a> di bawah.</p>
+
+          <div id="ooTokenList"></div>
+
+          <div class="oobar" style="margin-top:12px;">
+            <div><label class="fld">Akun yang ditarik</label><select class="sel" id="tkAkun"></select></div>
+            <div><label class="fld">Dari tanggal</label><input class="sel" type="date" id="tkSince"></div>
+            <div><label class="fld">Sampai tanggal</label><input class="sel" type="date" id="tkUntil"></div>
+            <div><button class="go" style="margin:0;width:100%;" id="btnTarik" onclick="tarikOrder()">⇩ Tarik Data</button></div>
+          </div>
+          <div class="msg" id="msgTarik"></div>
+
+          <details id="caraToken" style="margin-top:10px;">
+            <summary>Cara mengambil token OrderOnline (per akun)</summary>
+            <ol style="font-size:12.5px;color:var(--muted);line-height:1.7;margin:8px 0 0 18px;">
+              <li>Buka <b>app.orderonline.id</b> di Chrome, <b>login akun</b> yang mau ditarik.</li>
+              <li>Tekan <b>F12</b> → tab <b>Network</b>. Di platform, buka menu <b>order</b> / klik <b>Export</b> sekali.</li>
+              <li>Di daftar Network, klik request apa saja ke <b>reconcile.orderonline.id</b> atau <b>api.orderonline.id</b>.</li>
+              <li>Buka <b>Headers → Request Headers</b>, cari baris <code>authorization: Bearer eyJ…</code>.</li>
+              <li>Salin nilai setelah <b>"Bearer "</b> (yang diawali <code>eyJ</code>), tempel di slot akun di atas → <b>Simpan</b>.</li>
+              <li>Ulangi untuk akun lain (login akun masing-masing). Token berlaku ±7 hari, tempel ulang kalau kedaluwarsa.</li>
+            </ol>
+            <p class="d" style="margin-top:6px;">Kalau tarik gagal, buka <b>Diagnostik</b> di bawah untuk melihat balasan mentah server.</p>
+            <button class="ghost" style="margin-top:4px;" onclick="tesTarik()">🔬 Diagnostik koneksi (lihat balasan mentah)</button>
+            <pre id="tarikDiag" style="display:none;background:#111827;color:#e5e7eb;border-radius:9px;padding:10px 12px;
+              font-size:11px;line-height:1.6;white-space:pre-wrap;overflow:auto;max-height:280px;margin-top:8px;"></pre>
+          </details>
+        </div>
       </div>
 
       <div class="foot">Upsert by No. Waybill (All Resi / Reconcile) &amp; Akun + order_id (OrderOnline) ·
@@ -405,6 +445,15 @@
     document.getElementById('ooAkun').innerHTML='<option value="">Semua akun</option>'+
       a.map(function(x){ return '<option value="'+esc(x)+'">'+esc(x)+'</option>';}).join('');
   }).withFailureHandler(function(){}).getAkunOrderOnline();
+  muatTokenOrder();
+  // default rentang tanggal = 30 hari terakhir
+  (function(){
+    var p=function(n){return (''+n).padStart(2,'0');};
+    var fmt=function(d){return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());};
+    var kini=new Date(), lalu=new Date(Date.now()-30*864e5);
+    ['tkSince','ooSince'].forEach(function(id){var e=document.getElementById(id); if(e)e.value=fmt(lalu);});
+    ['tkUntil','ooUntil'].forEach(function(id){var e=document.getElementById(id); if(e)e.value=fmt(kini);});
+  })();
 
   // ---------- pilih file (MULTI) ----------
   Object.keys(SLOT).forEach(function(key){
@@ -491,6 +540,73 @@
     google.script.run.withSuccessHandler(function(st){
       if(st.orderOnline!=null) document.getElementById('cOrder').textContent=nf(st.orderOnline)+' baris';
     }).getStatus();
+  }
+
+  // ---------- auto-tarik OrderOnline (token per akun) ----------
+  function muatTokenOrder(){
+    google.script.run.withSuccessHandler(function(list){
+      // dropdown akun untuk tarik
+      document.getElementById('tkAkun').innerHTML=list.map(function(s){
+        return '<option value="'+esc(s.akun)+'">'+esc(s.akun)+'</option>';}).join('');
+      // daftar status token per akun
+      document.getElementById('ooTokenList').innerHTML=list.map(function(s){
+        var st = !s.ada ? '<span class="tag no">belum ada token</span>'
+               : (s.kedaluwarsa ? '<span class="tag no">kedaluwarsa</span>'
+                                : '<span class="tag ok">aktif</span>'+
+                                  (s.sisaJam!=null?' <span class="d">± '+Math.max(0,Math.round(s.sisaJam/24))+' hari lagi ('+esc(s.exp)+')</span>':''));
+        return '<div class="tokrow">'+
+            '<div class="tokhd"><b>'+esc(s.akun)+'</b> '+st+(s.ada?' <span class="d">'+esc(s.ekor)+'</span>':'')+
+              ' <button class="link2" onclick="editToken(\''+s.akun+'\')">'+(s.ada?'Ubah':'Tempel token')+'</button></div>'+
+            '<div class="tokedit" id="tokEdit_'+s.akun+'" style="display:none;">'+
+              '<textarea class="sel" id="tokIn_'+s.akun+'" rows="2" placeholder="tempel token (eyJ…) di sini"></textarea>'+
+              '<div style="display:flex;gap:8px;margin-top:6px;">'+
+                '<button class="go" style="margin:0" onclick="simpanToken(\''+s.akun+'\')">Simpan</button>'+
+                (s.ada?'<button class="ghost" onclick="hapusToken(\''+s.akun+'\')">Hapus</button>':'')+
+              '</div></div>'+
+          '</div>';
+      }).join('');
+    }).withFailureHandler(function(){}).statusTokenOrder();
+  }
+  function editToken(akun){
+    var el=document.getElementById('tokEdit_'+akun);
+    el.style.display = el.style.display==='none' ? 'block' : 'none';
+  }
+  function simpanToken(akun){
+    var tok=document.getElementById('tokIn_'+akun).value;
+    google.script.run.withSuccessHandler(function(){ muatTokenOrder(); show('msgTarik','ok','✔ Token '+esc(akun)+' tersimpan.'); })
+      .withFailureHandler(function(e){ show('msgTarik','err','✕ '+(e&&e.message?e.message:'Gagal.')); })
+      .simpanTokenOrder(akun, tok);
+  }
+  function hapusToken(akun){
+    if(!confirm('Hapus token '+akun+'?')) return;
+    google.script.run.withSuccessHandler(function(){ muatTokenOrder(); }).hapusTokenOrder(akun);
+  }
+  function tglCaraToken(){ var d=document.getElementById('caraToken'); d.open=!d.open; return false; }
+  function tarikOrder(){
+    var akun=document.getElementById('tkAkun').value;
+    var since=document.getElementById('tkSince').value, until=document.getElementById('tkUntil').value;
+    if(!since||!until){ show('msgTarik','err','Isi rentang tanggal dulu.'); return; }
+    var b=document.getElementById('btnTarik'); b.disabled=true;
+    show('msgTarik','info','<span class="spin"></span>Menarik data '+esc(akun)+' ('+esc(since)+' → '+esc(until)+')… (bisa beberapa detik)');
+    google.script.run.withSuccessHandler(function(r){
+      b.disabled=false;
+      show('msgTarik','ok','✔ <b>'+esc(r.akun)+'</b>: '+nf(r.disimpan)+' order tersimpan '+
+        '(baru '+nf(r.added)+' · update '+nf(r.updated)+' · total sheet '+nf(r.total)+') · via '+esc(r.via));
+      DASH_LOADED=false;
+      google.script.run.withSuccessHandler(function(st){
+        if(st.orderOnline!=null) document.getElementById('cOrder').textContent=nf(st.orderOnline)+' baris';
+      }).getStatus();
+    }).withFailureHandler(function(e){
+      b.disabled=false; show('msgTarik','err','✕ '+(e&&e.message?e.message:'Gagal menarik.'));
+    }).tarikOrderOnline(akun, since, until);
+  }
+  function tesTarik(){
+    var akun=document.getElementById('tkAkun').value;
+    var since=document.getElementById('tkSince').value, until=document.getElementById('tkUntil').value;
+    var el=document.getElementById('tarikDiag'); el.style.display='block'; el.textContent='menguji…';
+    google.script.run.withSuccessHandler(function(txt){ el.textContent=txt; })
+      .withFailureHandler(function(e){ el.textContent='✕ '+(e&&e.message?e.message:'Gagal.'); })
+      .tesTarikOrderMentah(akun, since, until);
   }
 
   /** baca semua file jadi base64 secara berurutan */

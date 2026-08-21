@@ -174,7 +174,7 @@ def optimize_table(catalog: pd.DataFrame, params: dict) -> pd.DataFrame:
             "Produk": str(r["nama"]), "CPL": cpl,
             "Nilai Produk": int(jual), "HPP": int(hpp),
             "Stok (pcs)": stok, "Pcs/Order": pcs,
-            "Total Order": int(r.get("n_orders", 0)),
+            "Total Resi": int(r.get("n_orders", 0)),
             "Pcs Terjual": int(r.get("pcs_total", 0) or 0),
             "AoV": int(jual), "CM": int(round(cm)), "CM%": round(cm_pct, 1),
             "Retur %": (round(retur_pct, 1) if pd.notna(retur_pct) else np.nan),
@@ -202,7 +202,7 @@ def optimize_table(catalog: pd.DataFrame, params: dict) -> pd.DataFrame:
     df["Budget/Hari"] = df["Budget/Hari"].astype(int)
 
     cols = ["Produk", "Budget/Hari", "CPL", "Nilai Produk", "HPP",
-            "Stok (pcs)", "Pcs/Order", "Total Order", "Pcs Terjual",
+            "Stok (pcs)", "Pcs/Order", "Total Resi", "Pcs Terjual",
             "AoV", "CM", "CM%", "Retur %"]
     extra = ["_score", "_be_cpl", "_profitable", "_stock_orders", "_n"]
     df = df[cols + extra].sort_values(["_score", "Budget/Hari"], ascending=False).reset_index(drop=True)
