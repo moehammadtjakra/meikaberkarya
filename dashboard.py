@@ -325,6 +325,8 @@ with tab1:
         st.session_state.pop("_prod_insig", None)         # paksa recompute CM/CM% stlh muat
         for _kk in [k for k in st.session_state if str(k).startswith(("cf_edit_", "cfed_"))]:
             st.session_state.pop(_kk, None)
+        # simpan penyesuaian harian yang dimuat utk dipasang saat tabel harian dibangun
+        st.session_state["_pending_daily"] = _d.get("daily")
 
     st.markdown(
         '<div class="navbar">'
@@ -523,19 +525,14 @@ with tab1:
 
         _ret = ("GRATIS (retur ≤ 20%)" if s.get("retur_excess", 0) <= 0
                 else f"{s.get('retur_excess',0)*100:.0f}% × ongkir penuh")
-        st.caption(
-            f"🧮 **COD**: kas cair saat settlement = Produk + Cashback − Fee COD.  "
-            f"**Non-COD**: kas masuk hari itu = Produk + Ongkir penuh.  "
-            f"Ongkir retur J&T: {_ret} (gratis bila retur bulanan ≤ 20%).  "
-            f"Budget iklan total **{rp(s['budget_iklan'])}** ({rp(s['budget_harian'])}/hari × {horizon} hari)."
-        )
+        st.caption(f"Budget iklan total **{rp(s['budget_iklan'])}** "
+                   f"({rp(s['budget_harian'])}/hari × {horizon} hari) • Ongkir retur J&T: {_ret}.")
 
     # ============================ SECTION 1: SKEMA GLOBAL ============================
     st.markdown("---")
     with st.container(border=True):
         section("📊 SECTION 1 — HASIL SKEMA GLOBAL",
-                "Proyeksi berdasarkan parameter global di atas (belanja iklan & opex rata sesuai "
-                "setelan). Inilah baseline sebelum Anda menyesuaikan pengeluaran per tanggal.",
+                "Proyeksi dari parameter global (baseline sebelum penyesuaian harian).",
                 anchor="sec-global")
 
         # info transparansi jadwal gaji (opex tetap)
@@ -712,17 +709,12 @@ with tab1:
                 f'produk <b>CM tertinggi</b>. Perkiraan modal kerja <b>{rp(modal_need)}</b>'
                 f'{" — MASIH di bawah modal Anda ✓." if _ok else f" — di atas modal {rp(modal0)}. Opsi: tambah modal, pakai pencairan <b>H+1</b> (mode 1) agar COD cepat cair, turunkan HPP/CPL, atau tingkatkan success rate."}'
                 f'</div>', unsafe_allow_html=True)
-        st.caption("Estimasi memakai ekstrapolasi linear efisiensi saat ini (kontribusi/rupiah "
-                   "iklan konstan). Realitanya CPL bisa naik saat skala besar & stok perlu ditambah — "
-                   "gunakan sebagai arah, lalu uji lewat tabel produk & Skema Harian.")
+        st.caption("Estimasi ekstrapolasi linear — pakai sebagai arah, uji lewat tabel produk.")
 
         # ---------- CHART UTAMA: POSISI KAS ----------
         st.markdown("#### 📈 Posisi Kas Sepanjang Waktu")
         st.plotly_chart(viz.fig_cash_position(sim["timeline"], s), width='stretch')
-        st.caption("Garis biru = **posisi kas riil** = Modal Awal + akumulasi arus kas harian. "
-                   "Garis putus abu = level Modal Awal; garis merah putus = batas 0. Titik hijau = "
-                   "saldo di H+30/60/90. Bila kurva menembus 0, modal **kurang** untuk skala belanja "
-                   "ini (tanda ⚠️ menunjukkan harinya) — kurangi budget/HPP atau tambah modal.")
+        st.caption("Garis biru = posisi kas (Modal Awal + arus kas). Menembus 0 = modal kurang.")
 
         # ---------- P&L BULANAN ----------
         st.markdown("#### 🧾 Laba-Rugi (P&L) per Bulan")
@@ -741,10 +733,8 @@ with tab1:
                 "Saldo Kas Akhir": mdf["saldo_kas_akhir"].map(rp),
             })
             st.dataframe(pnl_tab, width='stretch', hide_index=True)
-            st.caption("**Laba Bersih** = laba *akrual* (omzet COD diakui saat paket diterima). "
-                       "**Saldo Kas Akhir** = posisi *kas* di akhir bulan (Modal Awal + akumulasi arus "
-                       "kas) — bisa beda dari laba karena COD baru cair belakangan. Bulan pertama/terakhir "
-                       "dapat mencakup sebagian hari.")
+            st.caption("Laba Bersih = akrual; Saldo Kas Akhir = posisi kas akhir bulan (bisa beda "
+                       "karena COD cair belakangan).")
             st.plotly_chart(viz.fig_monthly_pnl(mdf), width='stretch')
 
         # ---------- TABEL CASHFLOW HARIAN ----------
@@ -768,9 +758,7 @@ with tab1:
             "Saldo Akhir": tlx["saldo_akhir"].map(rp),
         })
         st.dataframe(tabel_cf, width='stretch', height=380, hide_index=True)
-        st.caption("Saldo Awal hari-1 = **Modal Awal**. Saldo Akhir = Saldo Awal + (Kas Masuk − Kas "
-                   "Keluar). Saldo negatif = modal tak cukup di hari itu. Timeline mencakup hari kirim "
-                   "+ ekor pencairan COD setelah horizon.")
+        st.caption("Saldo Awal hari-1 = Modal Awal. Saldo negatif = modal tak cukup hari itu.")
 
         with st.expander("🔍 Chart & detail tambahan (omzet harian, funnel, waterfall, settlement, akumulasi)"):
             st.plotly_chart(viz.fig_daily_omzet(sim["timeline"]), width='stretch')
@@ -815,9 +803,7 @@ with tab1:
                 desc="Atur ulang Budget Iklan, CPL, Petty Cash, bahkan Gaji di tanggal tertentu. "
                      "Semua dihitung ulang otomatis (termasuk pencairan COD yang cair belakangan). "
                      "Bandingkan hasilnya dengan Skema Global di Section 3.")
-        st.caption("Nilai awal = sama dengan Skema Global (Gaji sudah terisi otomatis di tanggal "
-                   "gajian). Ubah sel mana pun untuk skenario what-if. Opex variabel/resi tetap "
-                   "otomatis mengikuti volume.")
+        st.caption("Nilai awal = Skema Global. Ubah sel mana pun untuk what-if; opex variabel/resi otomatis.")
 
         # --- parameter blended (tertimbang jumlah order) dari tabel produk ---
         _e = edited.copy()
@@ -868,7 +854,15 @@ with tab1:
         _key = f"cf_edit_{_sig}"
         _edkey = f"cfed_{_sig}"
         if _key not in st.session_state:
-            st.session_state[_key] = _seed_cf()
+            _pend = st.session_state.pop("_pending_daily", None)
+            if _pend:            # penyesuaian harian dari planning yang dimuat
+                try:
+                    _pdf = pd.DataFrame(_pend)
+                    st.session_state[_key] = _pdf if len(_pdf) == horizon else _seed_cf()
+                except Exception:
+                    st.session_state[_key] = _seed_cf()
+            else:
+                st.session_state[_key] = _seed_cf()
         cbtn = st.columns([5, 1])
         cbtn[0].caption(f"Range {horizon} hari sejak {_tgl_id(start_cf)}. Default: budget "
                         f"{rp(tot_budget_day)}/hari, CPL {rp(eff_cpl)}, gaji {rp(opex_fix_bulan)} di "
@@ -970,39 +964,39 @@ with tab1:
         st.plotly_chart(viz.fig_compare_saldo(tcf["tanggal"], g_saldo,
                                               tcf["saldo_akhir"].values, modal_awal), width='stretch')
 
-    # ==================== PLANNING: simpan / muat / hapus ====================
+    # ==================== PLANNING: simpan / muat / hapus (compact) ====================
     st.markdown("---")
     with st.container(border=True):
-        section("💾 PLANNING — Simpan / Muat Skenario", anchor="sec-plan",
-                desc="Simpan konfigurasi + tabel produk sebagai skenario bernama, buka lagi, "
-                     "perbarui, atau hapus. Tersimpan sebagai file di folder plans/.")
-        pc = st.columns([2, 1, 2])
-        plan_name = pc[0].text_input("Nama planning", key="plan_name_input",
-                                     placeholder="mis. Skenario Agresif 5x")
-        if pc[1].button("💾 Simpan / Update", width='stretch'):
+        st.markdown('<div id="sec-plan"></div>💾 **Planning** — simpan skenario '
+                    '(parameter + tabel produk + penyesuaian harian), buka lagi kapan saja.',
+                    unsafe_allow_html=True)
+        _plans = planning.list_plans()
+        pc = st.columns([3, 1, 3, 1, 0.7])
+        plan_name = pc[0].text_input("Nama skenario", key="plan_name_input",
+                                     placeholder="Nama skenario…", label_visibility="collapsed")
+        if pc[1].button("💾 Simpan", width='stretch',
+                        help="Simpan/perbarui skenario dgn nama di kiri."):
             if plan_name.strip():
                 payload = {k: st.session_state.get(k) for k in _PLAN_KEYS}
                 _pm = st.session_state.get("produk_current", st.session_state["produk_master"])
                 payload["produk_master"] = _pm[_INCOLS].to_dict("records")
+                payload["daily"] = ed_days.to_dict("records")   # penyesuaian harian ikut disimpan
                 planning.save_plan(plan_name, payload)
-                st.success(f"Planning '{plan_name}' tersimpan.")
+                st.toast(f"Skenario '{plan_name}' tersimpan.")
             else:
-                st.warning("Isi nama planning terlebih dahulu.")
-        _plans = planning.list_plans()
-        sel = pc[2].selectbox("Planning tersimpan", ["—"] + _plans, key="plan_select")
-        lc = st.columns([1, 1, 3])
-        if lc[0].button("📂 Muat", width='stretch', disabled=(sel == "—")):
+                st.toast("Isi nama skenario dulu.", icon="⚠️")
+        sel = pc[2].selectbox("Skenario", ["—"] + _plans, key="plan_select",
+                              label_visibility="collapsed")
+        if pc[3].button("📂 Muat", width='stretch', disabled=(sel == "—"),
+                        help="Terapkan skenario ini ke semua input, tabel produk, & penyesuaian harian."):
             pl = planning.load_plan(sel)
             if pl:
                 st.session_state["_pending_load"] = pl["data"]
-                st.success(f"Memuat '{sel}'…")
                 st.rerun()
-        if lc[1].button("🗑 Hapus", width='stretch', disabled=(sel == "—")):
+        if pc[4].button("🗑", width='stretch', disabled=(sel == "—"), help="Hapus skenario terpilih."):
             planning.delete_plan(sel)
             st.session_state.pop("plan_select", None)
             st.rerun()
-        lc[2].caption("Muat = terapkan skenario ke semua input & tabel produk. Simpan pakai nama "
-                      "sama untuk meng-update. File di folder plans/ (server ephemeral bisa reset).")
 
     st.markdown("#### 💡 Insight Otomatis")
     for line in insights.cashflow_insights(sim):
