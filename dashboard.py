@@ -214,7 +214,7 @@ tab1, tab4, tab2, tab3 = st.tabs(["💰 Modul 1 — Simulator Cashflow & Pencair
 _catalog = padmin.build_catalog(data.get("order"), data.get("stock"), df_all)
 # Kolom input (editable) + kolom turunan (disabled)
 _INCOLS = ["Produk", "Budget/Hari", "CPL", "Nilai Produk", "HPP", "Stok (pcs)", "Pcs/Order"]
-_DERIVED = ["CM", "CM%", "Retur %"]
+_DERIVED = ["Total Order", "Pcs Terjual", "CM", "CM%", "Retur %"]
 _PCOLS = _INCOLS + _DERIVED
 # kunci widget input yang disimpan/dimuat oleh fitur Planning
 _PLAN_KEYS = ["in_modal", "sim_start", "sim_end", "p_closing", "p_success", "p_ncs",
@@ -242,6 +242,8 @@ def seed_master(params: dict | None = None):
     t["Pcs/Order"] = 1
     _nj = pd.to_numeric(t["Nilai Produk"], errors="coerce").fillna(0)
     _hp = pd.to_numeric(t["HPP"], errors="coerce").fillna(0)
+    t["Total Order"] = 0
+    t["Pcs Terjual"] = 0
     t["CM"] = (_nj - _hp).round().astype(int)
     t["CM%"] = ((_nj - _hp) / _nj.replace(0, np.nan) * 100).round(1)
     t["Retur %"] = np.nan
@@ -378,9 +380,9 @@ with tab1:
                 else "histori All Resi (sheet admin tidak tersedia)")
         cap, btn = st.columns([5, 1])
         cap.caption(f"Sumber: **{_src}**. **✏️ = bisa diedit** (Budget, CPL, Nilai Jual, HPP, Stok, "
-                    "Pcs/Order) • **🔒 = otomatis, tidak bisa diedit** (CM, CM%, Retur %). CM & CM% "
-                    "**live-update** saat Anda ubah CPL/Closing/Nilai Jual/HPP. Geser ke kanan untuk "
-                    "melihat semua kolom.")
+                    "Pcs/Order) • **🔒 = otomatis, tidak bisa diedit** (Total Order, Pcs Terjual, CM, "
+                    "CM%, Retur %). CM & CM% **live-update** saat Anda ubah CPL/Closing/Nilai Jual/HPP. "
+                    "Geser ke kanan untuk melihat semua kolom.")
         if btn.button("🎯 Re-plot optimal", width='stretch',
                       help="Hitung ulang CPL & Budget optimal per produk memakai parameter global "
                            "saat ini (closing, success, ongkir, dll)."):
@@ -414,6 +416,14 @@ with tab1:
                                                 "menimbulkan biaya beli produk."),
             "Pcs/Order": _int("✏️ Pcs/Order", "Rata-rata pcs produk utama per order (untuk "
                                               "menghitung berapa order yang bisa dipenuhi stok)."),
+            "Total Order": st.column_config.NumberColumn("🔒 Total Order", disabled=True,
+                format="localized",
+                help="Jumlah transaksi/resi produk ini sejauh ini (dari Import-Order). "
+                     "Otomatis dari data — tidak bisa diedit."),
+            "Pcs Terjual": st.column_config.NumberColumn("🔒 Pcs Terjual", disabled=True,
+                format="localized",
+                help="Total pcs produk ini yang terjual sejauh ini (Σ Pcs semua order). "
+                     "Otomatis dari data — tidak bisa diedit."),
             "CM": st.column_config.NumberColumn("🔒 CM (Rp/order)", disabled=True,
                                                 format="localized", help=_cm_help),
             "CM%": st.column_config.NumberColumn("🔒 CM %", disabled=True, format="%.1f%%",

@@ -5,6 +5,7 @@ Sistem ini menggantikan Power Query Excel. Anda cukup **upload file lewat halama
 File yang dibuat:
 - `Code.gs` — backend (transform + upsert + riwayat upload).
 - `Dashboard.gs` — backend dashboard & proyeksi pencairan J&T.
+- `Order.gs` — backend OrderOnline (upload ke sheet terpisah + analisa leads/closing).
 - `Index.html` — halaman web (Upload Data · Dashboard · Pencairan J&T).
 
 ---
@@ -124,6 +125,22 @@ Sistem mencocokkan `No. Waybill` antara kedua sheet, jadi KPI *"Sampai tapi belu
 **Preview & Export.** Di widget **"Sampai tapi BELUM di reconcile"** ada tombol **👁 Preview & Export**. Klik → muncul tabel rinci resi yang sudah sampai (COD) tapi belum masuk reconcile: No. Waybill, Tgl Kirim, Penerima, Provinsi, Nilai Barang, Biaya (setelah diskon), Nilai COD, COD Fee, Diterima Oleh, Waktu Terima, Keterangan, Tanda TTD, COD/Non-COD, dan **Net yang seharusnya diterima** — diurut dari Net terbesar. Jumlah barisnya persis sama dengan angka di widget (COD-only). Tombol **⤓ Download Excel** di modal itu mengunduh data yang sama sebagai `.xlsx`.
 
 ---
+
+## OrderOnline (leads & closing)
+
+Tab **Upload Data** kini punya slot ke-3 **OrderOnline**: pilih **akun** (A1/A2/A3) lalu upload file export order dari platform OrderOnline (.xlsx/.csv, boleh beberapa sekaligus). Data disimpan ke sheet terpisah **`OrderOnline`**, di-upsert per **akun + order_id** (upload ulang rentang yang sama tidak menduplikasi).
+
+Di tab **Dashboard**, section **"OrderOnline — Leads & Closing"** menampilkan:
+
+- **Total leads masuk** (tiap order form = 1 lead), **Closing** (`payment_status = paid`), dan **Closing rate** (closing ÷ leads).
+- **Per Akun** — leads/closing/rate tiap akun + total.
+- **Produk dengan Closing Rate Terbaik** — hanya produk dengan ≥10 leads (biar rate tidak menipu), diurut rate tertinggi.
+- **Per Bulan** — tren leads/closing/rate.
+- Filter **Akun** + **rentang tanggal** (berdasarkan `created_at`), klik **Terapkan**.
+
+> Nama akun (A1/A2/A3) bisa diganti di `AKUN_ORDERONLINE` pada `Order.gs`.
+
+> **Rencana lanjutan:** auto-tarik data langsung dari OrderOnline (tempel token sesi per akun + pilih rentang tanggal + tombol tarik) — akan ditambahkan setelah endpoint export diuji dengan token aktif. Login penuh tidak bisa diotomatiskan (butuh reCAPTCHA), jadi tetap perlu tempel token (berlaku ~7 hari) per akun.
 
 ## Kalau ada perubahan kode nanti
 Setelah mengedit `Code.gs`/`Index.html`, **Deploy → Manage deployments → (pilih) → Edit (pensil) → Version: New version → Deploy**. URL tetap sama.

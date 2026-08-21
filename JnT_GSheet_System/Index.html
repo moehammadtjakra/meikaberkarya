@@ -112,6 +112,14 @@
     .modalhd b{font-size:16px;}
     .modalbd{padding:14px 18px;}
     @media(max-width:640px){ .modalhd{flex-direction:column;align-items:stretch;} }
+    label.fld{display:block;font-size:12px;color:var(--muted);margin:0 0 4px;}
+    select.sel,input.sel{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;
+      font-size:13.5px;background:#fff;font-family:inherit;color:inherit;}
+    .tbl td.r,.tbl th.r{text-align:right;}
+    .oobar{display:grid;grid-template-columns:1.2fr 1fr 1fr auto;gap:10px;align-items:end;}
+    @media(max-width:700px){ .oobar{grid-template-columns:1fr 1fr;} }
+    .ratebar{display:inline-block;height:8px;border-radius:5px;background:var(--jt);vertical-align:middle;margin-right:6px;}
+    .ratewrap{display:inline-block;width:70px;height:8px;border-radius:5px;background:#eef2f7;vertical-align:middle;margin-right:6px;overflow:hidden;}
   </style>
 </head>
 <body>
@@ -229,6 +237,31 @@
         <p class="d">Klik judul kolom untuk mengurutkan. <b>Net omzet</b> = Nilai COD − COD Fee −
           Total Biaya Setelah Diskon, dihitung dari resi yang <b>sudah sampai</b>.</p>
         <div class="scrollbox"><table class="tbl" id="tProv"></table></div>
+      </div>
+
+      <div class="mt">OrderOnline — Leads &amp; Closing</div>
+      <div class="card">
+        <p class="d" style="margin-top:0;">Leads = tiap order form masuk. <b>Closing</b> = order dengan
+          <code>payment_status = paid</code>. <b>Closing rate</b> = closing ÷ leads.</p>
+        <div class="oobar">
+          <div><label class="fld">Akun</label><select class="sel" id="ooAkun"><option value="">Semua akun</option></select></div>
+          <div><label class="fld">Dari tanggal</label><input class="sel" type="date" id="ooSince"></div>
+          <div><label class="fld">Sampai tanggal</label><input class="sel" type="date" id="ooUntil"></div>
+          <div><button class="go" style="margin:0;width:100%;" onclick="loadOrderDash()">Terapkan</button></div>
+        </div>
+        <div class="kpis" style="margin-top:14px;">
+          <div class="kpi"><span>Total leads masuk</span><b id="ooLeads">…</b><i id="ooLeadsI"></i></div>
+          <div class="kpi good"><span>Closing (paid)</span><b id="ooClosing">…</b><i id="ooClosingI"></i></div>
+          <div class="kpi"><span>Closing rate</span><b id="ooRate">…</b><i>closing ÷ leads</i></div>
+        </div>
+        <div class="mt" style="font-size:13px;">Per Akun</div>
+        <div class="scrollbox"><table class="tbl" id="ooAkunT"></table></div>
+        <div class="mt" style="font-size:13px;">Produk dengan Closing Rate Terbaik
+          <span class="d" id="ooProdNote" style="font-weight:400;"></span></div>
+        <div class="scrollbox"><table class="tbl" id="ooProdT"></table></div>
+        <div class="mt" style="font-size:13px;">Per Bulan</div>
+        <div class="scrollbox"><table class="tbl" id="ooBulanT"></table></div>
+        <div class="msg" id="msgOO"></div>
       </div>
 
       <details id="kal">
@@ -364,10 +397,13 @@
   }).getStatus();
   loadRiwayat('allResi'); loadRiwayat('reconcile');
 
-  // isi dropdown akun OrderOnline
+  // isi dropdown akun OrderOnline (slot upload + filter dashboard)
   google.script.run.withSuccessHandler(function(a){
-    document.getElementById('ordAkun').innerHTML=(a||[]).map(function(x){
+    a=a||[];
+    document.getElementById('ordAkun').innerHTML=a.map(function(x){
       return '<option value="'+esc(x)+'">'+esc(x)+'</option>';}).join('');
+    document.getElementById('ooAkun').innerHTML='<option value="">Semua akun</option>'+
+      a.map(function(x){ return '<option value="'+esc(x)+'">'+esc(x)+'</option>';}).join('');
   }).withFailureHandler(function(){}).getAkunOrderOnline();
 
   // ---------- pilih file (MULTI) ----------
@@ -577,6 +613,76 @@
       document.getElementById('tCair').innerHTML='<tbody><tr><td style="color:#9a1420;">✕ '+
         esc(e&&e.message?e.message:'Gagal memuat pencairan.')+'</td></tr></tbody>';
       show('msgC','err','✕ '+(e&&e.message?e.message:'Gagal.')); }).getDashSettle();
+
+    // (3) OrderOnline — leads & closing
+    loadOrderDash();
+  }
+
+  // ============ Dashboard OrderOnline ============
+  function loadOrderDash(){
+    hide('msgOO');
+    document.getElementById('ooAkunT').innerHTML=ph(4);
+    document.getElementById('ooProdT').innerHTML=ph(4);
+    document.getElementById('ooBulanT').innerHTML=ph(4);
+    var f={ akun:document.getElementById('ooAkun').value,
+            since:document.getElementById('ooSince').value,
+            until:document.getElementById('ooUntil').value };
+    google.script.run.withSuccessHandler(drawOrderDash).withFailureHandler(function(e){
+      show('msgOO','err','✕ '+(e&&e.message?e.message:'Gagal memuat data OrderOnline.'));
+      ['ooAkunT','ooProdT','ooBulanT'].forEach(function(id){ document.getElementById(id).innerHTML=''; });
+    }).getDashOrder(f);
+  }
+  function bar_(rate){   // rate 0..100 -> mini bar
+    var w=Math.max(0,Math.min(100,Number(rate)||0));
+    return '<span class="ratewrap"><span class="ratebar" style="width:'+w+'%;height:8px;"></span></span>'+w+'%';
+  }
+  function drawOrderDash(d){
+    if(!d.ada){
+      document.getElementById('ooLeads').textContent='0';
+      document.getElementById('ooClosing').textContent='0';
+      document.getElementById('ooRate').textContent='—';
+      var kosong='<tbody><tr><td style="color:var(--muted);">Belum ada data OrderOnline. Upload dulu di tab Upload Data.</td></tr></tbody>';
+      document.getElementById('ooAkunT').innerHTML=kosong;
+      document.getElementById('ooProdT').innerHTML='<tbody><tr><td style="color:var(--muted);">—</td></tr></tbody>';
+      document.getElementById('ooBulanT').innerHTML='<tbody><tr><td style="color:var(--muted);">—</td></tr></tbody>';
+      return;
+    }
+    var per = (d.periode.since||d.periode.until)
+      ? ((d.periode.since||'…')+' → '+(d.periode.until||'…')) : 'semua tanggal';
+    document.getElementById('ooLeads').textContent=nf(d.leads);
+    document.getElementById('ooLeadsI').textContent=per;
+    document.getElementById('ooClosing').textContent=nf(d.closing);
+    document.getElementById('ooClosingI').textContent='payment_status = paid';
+    document.getElementById('ooRate').innerHTML='<b>'+d.rate+'%</b>';
+
+    // per akun
+    var ta=d.perAkun.filter(function(a){return a.leads>0;});
+    document.getElementById('ooAkunT').innerHTML=
+      '<thead><tr><th>Akun</th><th class="r">Leads</th><th class="r">Closing</th><th>Closing rate</th></tr></thead><tbody>'+
+      (ta.length?ta.map(function(a){
+        return '<tr><td><b>'+esc(a.akun)+'</b></td><td class="r">'+nf(a.leads)+'</td>'+
+          '<td class="r">'+nf(a.closing)+'</td><td>'+bar_(a.rate)+'</td></tr>';
+      }).join(''):'<tr><td colspan="4" style="color:var(--muted)">Belum ada data per akun.</td></tr>')+'</tbody>'+
+      '<tfoot><tr><td>TOTAL</td><td class="r">'+nf(d.leads)+'</td><td class="r">'+nf(d.closing)+'</td><td>'+bar_(d.rate)+'</td></tr></tfoot>';
+
+    // produk terbaik
+    document.getElementById('ooProdNote').textContent='(minimal '+d.minLeads+' leads agar rate bermakna, diurut rate tertinggi)';
+    var tp=d.produkTerbaik||[];
+    document.getElementById('ooProdT').innerHTML=
+      '<thead><tr><th>Produk</th><th class="r">Leads</th><th class="r">Closing</th><th>Closing rate</th></tr></thead><tbody>'+
+      (tp.length?tp.map(function(p){
+        return '<tr><td>'+esc(p.product)+'</td><td class="r">'+nf(p.leads)+'</td>'+
+          '<td class="r">'+nf(p.closing)+'</td><td>'+bar_(p.rate)+'</td></tr>';
+      }).join(''):'<tr><td colspan="4" style="color:var(--muted)">Belum ada produk yang mencapai '+d.minLeads+' leads pada periode ini.</td></tr>')+'</tbody>';
+
+    // per bulan
+    var tb=d.perBulan||[];
+    document.getElementById('ooBulanT').innerHTML=
+      '<thead><tr><th>Bulan</th><th class="r">Leads</th><th class="r">Closing</th><th>Closing rate</th></tr></thead><tbody>'+
+      (tb.length?tb.map(function(b){
+        return '<tr><td><b>'+esc(b.bulan)+'</b></td><td class="r">'+nf(b.leads)+'</td>'+
+          '<td class="r">'+nf(b.closing)+'</td><td>'+bar_(b.rate)+'</td></tr>';
+      }).join(''):'<tr><td colspan="4" style="color:var(--muted)">—</td></tr>')+'</tbody>';
   }
 
   function drawKpiInti(R){

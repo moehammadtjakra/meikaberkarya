@@ -14,7 +14,7 @@
 // Dinaikkan SETIAP kali deploy versi baru. Halaman yang sedang terbuka
 // membandingkan versinya dengan versi di server; kalau beda -> banner "versi
 // baru" muncul dan user cukup klik "Muat ulang" (tanpa hapus cache manual).
-var APP_VERSION = 'v1.2 — preview & export resi sampai belum reconcile';
+var APP_VERSION = 'v1.3 — upload + dashboard OrderOnline (leads, closing rate, produk)';
 
 // ---------------------------------------------------------------------------
 // KONFIGURASI

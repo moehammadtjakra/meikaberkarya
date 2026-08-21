@@ -59,11 +59,14 @@ def build_catalog(order_df: pd.DataFrame | None,
              .agg(n_orders=("SKU", "size"),
                   nilai_jual=(sell_col, "mean"),
                   hpp_order_ord=(hpp_col, "mean"),
-                  pcs_order=("Pcs", "mean") if "Pcs" in o.columns else ("SKU", "size"))
+                  pcs_order=("Pcs", "mean") if "Pcs" in o.columns else ("SKU", "size"),
+                  pcs_total=("Pcs", "sum") if "Pcs" in o.columns else ("SKU", "size"))
              .reset_index())
     if "Pcs" not in o.columns:
         agg["pcs_order"] = 1.0
+        agg["pcs_total"] = agg["n_orders"]
     agg["pcs_order"] = agg["pcs_order"].round().clip(lower=1).astype(int)
+    agg["pcs_total"] = _num(agg["pcs_total"]).fillna(0).round().astype(int)
 
     # gabung stok
     if stock_df is not None and len(stock_df):
@@ -171,6 +174,8 @@ def optimize_table(catalog: pd.DataFrame, params: dict) -> pd.DataFrame:
             "Produk": str(r["nama"]), "CPL": cpl,
             "Nilai Produk": int(jual), "HPP": int(hpp),
             "Stok (pcs)": stok, "Pcs/Order": pcs,
+            "Total Order": int(r.get("n_orders", 0)),
+            "Pcs Terjual": int(r.get("pcs_total", 0) or 0),
             "AoV": int(jual), "CM": int(round(cm)), "CM%": round(cm_pct, 1),
             "Retur %": (round(retur_pct, 1) if pd.notna(retur_pct) else np.nan),
             "_score": score, "_be_cpl": be_cpl, "_profitable": profitable,
@@ -197,7 +202,8 @@ def optimize_table(catalog: pd.DataFrame, params: dict) -> pd.DataFrame:
     df["Budget/Hari"] = df["Budget/Hari"].astype(int)
 
     cols = ["Produk", "Budget/Hari", "CPL", "Nilai Produk", "HPP",
-            "Stok (pcs)", "Pcs/Order", "AoV", "CM", "CM%", "Retur %"]
+            "Stok (pcs)", "Pcs/Order", "Total Order", "Pcs Terjual",
+            "AoV", "CM", "CM%", "Retur %"]
     extra = ["_score", "_be_cpl", "_profitable", "_stock_orders", "_n"]
     df = df[cols + extra].sort_values(["_score", "Budget/Hari"], ascending=False).reset_index(drop=True)
     return df
