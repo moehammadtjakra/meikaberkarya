@@ -53,6 +53,8 @@ GSHEET_TAB_PROBLEM = "Laporan Paket Tertunda"
 # Sheet admin (importrange): order & stok. Coba beberapa kemungkinan nama tab.
 GSHEET_TAB_ORDER = ["Import-Order", "ORDERS", "Orders", "Order", "Import Order"]
 GSHEET_TAB_STOCK = ["Import-Stock", "STOK", "Stok", "Stock", "Import Stock"]
+GSHEET_TAB_OO = ["OrderOnline", "Order Online", "ORDERONLINE", "OO"]
+GSHEET_TAB_REF = ["Impor-RefProduk", "Import-RefProduk", "RefProduk", "Ref Produk"]
 GSHEET_OAUTH_CRED = os.path.join(BASE_DIR, "credentials", "oauth_client.json")
 GSHEET_OAUTH_TOKEN = os.path.join(BASE_DIR, "credentials", "authorized_user.json")
 # Untuk DEPLOY headless (Streamlit Cloud): isi via st.secrets (bukan file).

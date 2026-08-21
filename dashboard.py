@@ -210,11 +210,14 @@ tab1, tab4, tab2, tab3 = st.tabs(["💰 Modul 1 — Simulator Cashflow & Pencair
                                   "🗺️ Modul 3 — Analisis Wilayah",
                                   "📦 Modul 4 — Analisis Produk"])
 
-# ---- katalog produk dari sheet admin (Import-Order + Import-Stock + retur) ----
-_catalog = padmin.build_catalog(data.get("order"), data.get("stock"), df_all)
+# ---- katalog produk dari sheet admin (Order + Stock + retur + OrderOnline closing) ----
+_catalog = padmin.build_catalog(data.get("order"), data.get("stock"), df_all,
+                                data.get("oo"), data.get("ref"))
+# Closing rate GLOBAL dari OrderOnline (paid & completed/processing ÷ total leads) — default slider
+_OO_CLOSING = padmin.global_closing_rate(data.get("oo"))
 # Kolom input (editable) + kolom turunan (disabled)
 _INCOLS = ["Produk", "Budget/Hari", "CPL", "Nilai Produk", "HPP", "Stok (pcs)", "Pcs/Order"]
-_DERIVED = ["Total Resi", "Pcs Terjual", "CM", "CM%", "Retur %"]
+_DERIVED = ["Total Resi", "Closing Rate", "Pcs Terjual", "CM", "CM%", "Retur %"]
 _PCOLS = _INCOLS + _DERIVED
 # kunci widget input yang disimpan/dimuat oleh fitur Planning
 _PLAN_KEYS = ["in_modal", "sim_start", "sim_end", "p_closing", "p_success", "p_ncs",
@@ -228,7 +231,7 @@ def seed_master(params: dict | None = None):
     Fallback ke histori all_resi bila sheet admin tidak tersedia."""
     if _catalog is not None and not _catalog.empty:
         pr = params or dict(
-            closing=config.DEFAULTS["closing_rate"],
+            closing=(_OO_CLOSING or config.DEFAULTS["closing_rate"]),
             success=baseline.get("success_rate", config.DEFAULTS["success_rate"]),
             ongkir=baseline.get("avg_total_biaya", config.DEFAULTS["ongkir_per_resi"]),
             cashback_pct=baseline.get("cashback_pct", config.DEFAULTS["cashback_pct"]),
@@ -243,6 +246,7 @@ def seed_master(params: dict | None = None):
     _nj = pd.to_numeric(t["Nilai Produk"], errors="coerce").fillna(0)
     _hp = pd.to_numeric(t["HPP"], errors="coerce").fillna(0)
     t["Total Resi"] = 0
+    t["Closing Rate"] = np.nan
     t["Pcs Terjual"] = 0
     t["CM"] = (_nj - _hp).round().astype(int)
     t["CM%"] = ((_nj - _hp) / _nj.replace(0, np.nan) * 100).round(1)
@@ -335,8 +339,10 @@ with tab1:
 
         st.markdown("#### ⚙️ Parameter Global")
         g1, g2, g3, g4 = st.columns(4)
-        closing = g1.slider("Closing Order (%)", 0, 100,
-                            int(config.DEFAULTS["closing_rate"] * 100), key="p_closing") / 100
+        _cl_def = int(round((_OO_CLOSING if _OO_CLOSING else config.DEFAULTS["closing_rate"]) * 100))
+        closing = g1.slider("Closing Order (%)", 0, 100, _cl_def, key="p_closing",
+                            help=("Default dari OrderOnline: (paid & completed/processing) ÷ total "
+                                  "leads." if _OO_CLOSING else "Default dari asumsi.")) / 100
         success = g1.slider("Success Delivery (%)", 0, 100,
                             int(round(baseline["success_rate"] * 100)) or 1, key="p_success") / 100
         n_cs = int(g1.number_input("Jumlah Customer Service (orang)", 1, 200,
@@ -380,9 +386,9 @@ with tab1:
                 else "histori All Resi (sheet admin tidak tersedia)")
         cap, btn = st.columns([5, 1])
         cap.caption(f"Sumber: **{_src}**. **✏️ = bisa diedit** (Budget, CPL, Nilai Jual, HPP, Stok, "
-                    "Pcs/Order) • **🔒 = otomatis, tidak bisa diedit** (Total Resi, Pcs Terjual, CM, "
-                    "CM%, Retur %). CM & CM% **live-update** saat Anda ubah CPL/Closing/Nilai Jual/HPP. "
-                    "Geser ke kanan untuk melihat semua kolom.")
+                    "Pcs/Order) • **🔒 = otomatis, tidak bisa diedit** (Total Resi, Closing Rate, Pcs "
+                    "Terjual, CM, CM%, Retur %). CM & CM% **live-update** saat Anda ubah CPL/Closing/"
+                    "Nilai Jual/HPP. Geser ke kanan untuk melihat semua kolom.")
         if btn.button("🎯 Re-plot optimal", width='stretch',
                       help="Hitung ulang CPL & Budget optimal per produk memakai parameter global "
                            "saat ini (closing, success, ongkir, dll)."):
@@ -421,6 +427,11 @@ with tab1:
                 format="localized",
                 help="Jumlah transaksi/resi produk ini sejauh ini (dari Import-Order). "
                      "Otomatis dari data — tidak bisa diedit."),
+            "Closing Rate": st.column_config.NumberColumn("🔒 Closing Rate", disabled=True,
+                format="%.1f%%",
+                help="Closing rate historis produk ini dari OrderOnline = order (paid & "
+                     "completed/processing) ÷ total leads produk itu. Otomatis dari data — "
+                     "tidak bisa diedit."),
             "Pcs Terjual": st.column_config.NumberColumn("🔒 Pcs Terjual", disabled=True,
                 format="localized",
                 help="Total pcs produk ini yang terjual sejauh ini (Σ Pcs semua order). "

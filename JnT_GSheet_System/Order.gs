@@ -272,26 +272,37 @@ function ambilExportOrder_(token, since, until) {
     return { rows: rows, via: 'xlsx' };
   }
 
-  // kalau bukan xlsx, coba JSON
-  var teks = resp.getContentText();
-  try {
-    var j = JSON.parse(teks);
-    var arr = Array.isArray(j) ? j
-      : (j && Array.isArray(j.data) ? j.data
-      : (j && j.data && Array.isArray(j.data.data) ? j.data.data
-      : (j && Array.isArray(j.rows) ? j.rows : null)));
-    if (arr) return { rows: arr, via: 'json' };
-    // mungkin balasan berisi URL file untuk diunduh
-    var link = (j && (j.url || (j.data && (j.data.url || j.data.link)))) || '';
-    if (link) {
-      var r2 = UrlFetchApp.fetch(link, { muteHttpExceptions: true });
-      if (r2.getResponseCode() === 200)
-        return { rows: readUploadedSheet(Utilities.base64Encode(r2.getContent()), 'oo_export.xlsx'), via: 'xlsx-url' };
-    }
-    return { _error: 'Balasan JSON tak dikenal strukturnya: ' + potongOO_(teks, 300) };
-  } catch (e) {
-    return { _error: 'Balasan bukan xlsx maupun JSON (Content-Type: ' + ct + '): ' + potongOO_(teks, 300) };
+  // Bukan xlsx -> JSON. Endpoint OrderOnline mengembalikan:
+  //   { "data": "https://…s3…/exports/….xlsx", "message":"", "error_code":0, ... }
+  // yaitu URL file di S3 yang harus DIUNDUH lagi.
+  var teks = resp.getContentText().replace(/^﻿/, '').trim();   // buang BOM (bikin JSON.parse gagal)
+  var j;
+  try { j = JSON.parse(teks); }
+  catch (e) { return { _error: 'Balasan bukan xlsx maupun JSON (Content-Type: ' + ct + '): ' + potongOO_(teks, 300) }; }
+
+  if (j && j.error_code && Number(j.error_code) !== 0)
+    return { _error: 'OrderOnline menolak: ' + (j.message || ('error_code ' + j.error_code)) };
+
+  // data berupa array order langsung?
+  var arr = Array.isArray(j) ? j
+    : (j && Array.isArray(j.data) ? j.data
+    : (j && j.data && Array.isArray(j.data.data) ? j.data.data
+    : (j && Array.isArray(j.rows) ? j.rows : null)));
+  if (arr) return { rows: arr, via: 'json' };
+
+  // data berupa URL file (kasus nyata OrderOnline)
+  var link = '';
+  if (j) {
+    if (typeof j.data === 'string' && /^https?:\/\//i.test(j.data)) link = j.data;
+    else link = j.url || (j.data && (j.data.url || j.data.link)) || '';
   }
+  if (link) {
+    var r2 = UrlFetchApp.fetch(link, { method: 'get', muteHttpExceptions: true, followRedirects: true });
+    if (r2.getResponseCode() !== 200)
+      return { _error: 'Gagal mengunduh file export dari S3 (HTTP ' + r2.getResponseCode() + ').' };
+    return { rows: readUploadedSheet(Utilities.base64Encode(r2.getContent()), 'oo_export.xlsx'), via: 'xlsx-url' };
+  }
+  return { _error: 'Balasan JSON tak dikenal strukturnya: ' + potongOO_(teks, 300) };
 }
 
 /** Tarik & simpan ke sheet OrderOnline untuk satu akun. */
@@ -372,6 +383,52 @@ function tesTarikOrderMentah(akun, since, until) {
 // ===========================================================================
 var ORDER_MIN_LEADS = 10;    // ambang minimal leads agar closing rate produk bermakna
 
+// Sheet acuan penamaan produk (di spreadsheet yang sama). Nama sheet dicoba
+// berurutan — pakai yang pertama ditemukan (typo "Impor" vs "Import" ditoleransi).
+var ORDER_REF = {
+  ref:   ['Impor-RefProduk', 'Import-RefProduk', 'Ref Produk', 'RefProduk', 'Ref_Produk'],
+  stok:  ['Import-Stock', 'Impor-Stock', 'Stok', 'Stock']
+};
+
+/**
+ * Peta product_code (huruf besar) -> NAMA PRODUK KANONIK.
+ * Sumber utama: Impor-RefProduk (product_code -> "Nama Barang JNT").
+ * Cadangan   : Import-Stock (SKU -> "Nama Produk").
+ * Dipakai supaya "produk terbaik" tampil bersih & seragam, bukan teks promo
+ * OrderOnline yang beragam ("((Gelang Retro…))", "…Beli 1 Gratis 1").
+ */
+function petaProdukKanonik_() {
+  var ss = getSpreadsheet();
+  var map = {};
+  var pilih = function (names) {
+    for (var i = 0; i < names.length; i++) { var sh = ss.getSheetByName(names[i]); if (sh) return sh; }
+    return null;
+  };
+  var serap = function (sh, kolKode, kolNamaKandidat) {
+    if (!sh || sh.getLastRow() < 2) return;
+    var h = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(function (x) { return String(x).trim(); });
+    var ik = h.indexOf(kolKode);
+    var inx = -1;
+    kolNamaKandidat.forEach(function (nm) { if (inx < 0) inx = h.indexOf(nm); });
+    if (ik < 0 || inx < 0) return;
+    sh.getRange(2, 1, sh.getLastRow() - 1, h.length).getValues().forEach(function (r) {
+      var c = String(r[ik] == null ? '' : r[ik]).trim().toUpperCase();
+      var n = String(r[inx] == null ? '' : r[inx]).trim();
+      if (c && n && !map[c]) map[c] = n;      // sumber pertama menang
+    });
+  };
+  serap(pilih(ORDER_REF.ref),  'product_code', ['Nama Barang JNT', 'Nama Produk']);
+  serap(pilih(ORDER_REF.stok), 'SKU',          ['Nama Produk', 'Nama Barang JNT']);
+  return map;
+}
+
+/** Bersihkan teks produk OrderOnline (buang kurung & spasi berlebih) — cadangan bila kode tak ada di ref. */
+function bersihProduk_(s) {
+  var x = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+  x = x.replace(/^[\(\[\{\s]+/, '').replace(/[\)\]\}\s]+$/, '').trim();
+  return x;
+}
+
 /**
  * @param {Object} f  { since:'yyyy-mm-dd', until:'yyyy-mm-dd', akun:'A1'|'' }  (opsional)
  */
@@ -392,7 +449,8 @@ function getDashOrder(f) {
   var until = f.until ? tglOrder_(f.until + ' ') : null;
   if (until) until = new Date(until.getFullYear(), until.getMonth(), until.getDate(), 23, 59, 59);
 
-  var akun = {}, prod = {}, bulan = {};
+  var peta = petaProdukKanonik_();          // product_code -> nama kanonik
+  var akun = {}, prod = {}, bulan = {}, tanpaRef = {};
   AKUN_ORDERONLINE.forEach(function (a) { akun[a] = { akun: a, leads: 0, closing: 0 }; });
 
   t.rows.forEach(function (r) {
@@ -407,9 +465,16 @@ function getDashOrder(f) {
 
     if (akun[a]) { akun[a].leads++; if (paid) akun[a].closing++; }
 
-    var p = String(r['product'] || '').trim() || '(tanpa nama produk)';
-    if (!prod[p]) prod[p] = { product: p, leads: 0, closing: 0 };
-    prod[p].leads++; if (paid) prod[p].closing++;
+    // NAMA PRODUK KANONIK dari product_code; kalau kode tak ada di ref, pakai
+    // teks produk yang dibersihkan; grouping tetap per-kode supaya varian promo
+    // dari produk sama menyatu.
+    var code = String(r['product_code'] == null ? '' : r['product_code']).trim().toUpperCase();
+    var kanonik = (code && peta[code]) ? peta[code]
+                : (bersihProduk_(r['product']) || code || '(tanpa nama produk)');
+    var gk = code ? ('C:' + code) : ('N:' + kanonik.toLowerCase());
+    if (code && !peta[code]) tanpaRef[code] = kanonik;       // kode belum ada di Ref Produk
+    if (!prod[gk]) prod[gk] = { product: kanonik, kode: code, leads: 0, closing: 0 };
+    prod[gk].leads++; if (paid) prod[gk].closing++;
 
     if (tgl) {
       var bk = tgl.getFullYear() + '-' + ('0' + (tgl.getMonth() + 1)).slice(-2);
@@ -435,6 +500,10 @@ function getDashOrder(f) {
   out.perBulan = Object.keys(bulan).sort().map(function (k) {
     var o = bulan[k]; o.rate = pct_(o.closing, o.leads); return o;
   });
+
+  // kode produk yang belum ada padanannya di Ref Produk (biar bisa ditambahkan)
+  out.kodeTanpaRef = Object.keys(tanpaRef).map(function (c) { return c + ' — ' + tanpaRef[c]; });
+  out.refAda = Object.keys(peta).length;
   return out;
 }
 

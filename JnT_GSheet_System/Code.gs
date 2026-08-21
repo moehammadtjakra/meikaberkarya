@@ -14,7 +14,7 @@
 // Dinaikkan SETIAP kali deploy versi baru. Halaman yang sedang terbuka
 // membandingkan versinya dengan versi di server; kalau beda -> banner "versi
 // baru" muncul dan user cukup klik "Muat ulang" (tanpa hapus cache manual).
-var APP_VERSION = 'v1.4 — auto-tarik OrderOnline via token sesi per akun';
+var APP_VERSION = 'v1.6 — produk closing rate pakai nama kanonik dari Ref Produk';
 
 // ---------------------------------------------------------------------------
 // KONFIGURASI

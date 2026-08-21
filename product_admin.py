@@ -26,11 +26,53 @@ def _num(s):
     return pd.to_numeric(s, errors="coerce")
 
 
+def global_closing_rate(oo_df: pd.DataFrame | None) -> float | None:
+    """Closing rate GLOBAL dari OrderOnline = (paid & status completed/processing) ÷ total leads."""
+    if oo_df is None or len(oo_df) == 0:
+        return None
+    d = oo_df.copy()
+    d.columns = [str(c).strip() for c in d.columns]
+    if "payment_status" not in d.columns or "status" not in d.columns:
+        return None
+    paid = d["payment_status"].astype(str).str.lower().eq("paid")
+    stat = d["status"].astype(str).str.lower().isin(["completed", "processing"])
+    n = len(d)
+    return float((paid & stat).sum() / n) if n else None
+
+
+def _closing_per_sku(oo_df, ref_df):
+    """Closing rate (%) per SKU dari OrderOnline, map product_code→SKU via RefProduk."""
+    if oo_df is None or len(oo_df) == 0 or ref_df is None or len(ref_df) == 0:
+        return None
+    oo = oo_df.copy(); rf = ref_df.copy()
+    oo.columns = [str(c).strip() for c in oo.columns]
+    rf.columns = [str(c).strip() for c in rf.columns]
+    if not {"product_code"}.issubset(oo.columns) or not {"product_code", "SKU"}.issubset(rf.columns):
+        return None
+    rf["product_code"] = rf["product_code"].astype(str).str.strip()
+    rf["SKU"] = rf["SKU"].astype(str).str.strip()
+    code2sku = (rf.groupby("product_code")["SKU"]
+                  .agg(lambda s: s.mode().iloc[0] if len(s.mode()) else s.iloc[0]).to_dict())
+    oo["product_code"] = oo["product_code"].astype(str).str.strip()
+    oo["_sku"] = oo["product_code"].map(code2sku)
+    paid = oo.get("payment_status", pd.Series("", index=oo.index)).astype(str).str.lower().eq("paid")
+    stat = oo.get("status", pd.Series("", index=oo.index)).astype(str).str.lower().isin(
+        ["completed", "processing"])
+    oo["_clo"] = (paid & stat).astype(int)
+    gg = (oo.dropna(subset=["_sku"]).groupby("_sku")
+            .agg(leads=("_sku", "size"), clo=("_clo", "sum")).reset_index())
+    _den = gg["leads"].replace(0, np.nan)
+    gg["closing_rate"] = (gg["clo"] / _den * 100).round(1)
+    return gg.rename(columns={"_sku": "SKU"})[["SKU", "closing_rate"]]
+
+
 def build_catalog(order_df: pd.DataFrame | None,
                   stock_df: pd.DataFrame | None,
-                  all_resi: pd.DataFrame | None = None) -> pd.DataFrame:
-    """Katalog per SKU dari order (nilai jual & HPP riil) + stok gudang + retur.
-    Retur per produk dihitung dgn join order↔all_resi lewat No. Waybill."""
+                  all_resi: pd.DataFrame | None = None,
+                  oo_df: pd.DataFrame | None = None,
+                  ref_df: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Katalog per SKU dari order (nilai jual & HPP riil) + stok gudang + retur + closing.
+    Retur via join order↔all_resi (No. Waybill); closing via OrderOnline↔RefProduk (product_code)."""
     if order_df is None or len(order_df) == 0:
         return pd.DataFrame()
 
@@ -121,6 +163,13 @@ def build_catalog(order_df: pd.DataFrame | None,
         agg = agg.drop(columns=["retur_pct"]).merge(
             gg[["SKU", "retur_pct"]], on="SKU", how="left")
     agg["retur_pct"] = _num(agg["retur_pct"]).round(1)
+
+    # --- Closing rate per SKU dari OrderOnline ---
+    agg["closing_rate"] = np.nan
+    _clo = _closing_per_sku(oo_df, ref_df)
+    if _clo is not None and len(_clo):
+        agg = agg.drop(columns=["closing_rate"]).merge(_clo, on="SKU", how="left")
+    agg["closing_rate"] = _num(agg["closing_rate"]).round(1)
     return agg.sort_values("n_orders", ascending=False).reset_index(drop=True)
 
 
@@ -175,6 +224,8 @@ def optimize_table(catalog: pd.DataFrame, params: dict) -> pd.DataFrame:
             "Nilai Produk": int(jual), "HPP": int(hpp),
             "Stok (pcs)": stok, "Pcs/Order": pcs,
             "Total Resi": int(r.get("n_orders", 0)),
+            "Closing Rate": (round(float(r.get("closing_rate")), 1)
+                             if pd.notna(r.get("closing_rate")) else np.nan),
             "Pcs Terjual": int(r.get("pcs_total", 0) or 0),
             "AoV": int(jual), "CM": int(round(cm)), "CM%": round(cm_pct, 1),
             "Retur %": (round(retur_pct, 1) if pd.notna(retur_pct) else np.nan),
@@ -202,7 +253,7 @@ def optimize_table(catalog: pd.DataFrame, params: dict) -> pd.DataFrame:
     df["Budget/Hari"] = df["Budget/Hari"].astype(int)
 
     cols = ["Produk", "Budget/Hari", "CPL", "Nilai Produk", "HPP",
-            "Stok (pcs)", "Pcs/Order", "Total Resi", "Pcs Terjual",
+            "Stok (pcs)", "Pcs/Order", "Total Resi", "Closing Rate", "Pcs Terjual",
             "AoV", "CM", "CM%", "Retur %"]
     extra = ["_score", "_be_cpl", "_profitable", "_stock_orders", "_n"]
     df = df[cols + extra].sort_values(["_score", "Budget/Hari"], ascending=False).reset_index(drop=True)

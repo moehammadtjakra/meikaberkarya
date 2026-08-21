@@ -159,6 +159,8 @@ def clean_all(raw: dict) -> dict:
         "problem": raw.get("problem"),
         "order": raw.get("order"),      # sheet Import-Order (admin) — mentah
         "stock": raw.get("stock"),      # sheet Import-Stock (admin) — mentah
+        "oo": raw.get("oo"),            # sheet OrderOnline (leads) — mentah
+        "ref": raw.get("ref"),          # sheet Impor-RefProduk (mapping) — mentah
         "path": raw.get("path"),
         "mtime": raw.get("mtime"),
     }

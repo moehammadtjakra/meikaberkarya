@@ -782,7 +782,11 @@
       '<tfoot><tr><td>TOTAL</td><td class="r">'+nf(d.leads)+'</td><td class="r">'+nf(d.closing)+'</td><td>'+bar_(d.rate)+'</td></tr></tfoot>';
 
     // produk terbaik
-    document.getElementById('ooProdNote').textContent='(minimal '+d.minLeads+' leads agar rate bermakna, diurut rate tertinggi)';
+    var note='(nama dari Ref Produk via product_code · minimal '+d.minLeads+' leads · diurut rate tertinggi)';
+    if(d.kodeTanpaRef && d.kodeTanpaRef.length)
+      note+=' — ⚠ '+d.kodeTanpaRef.length+' kode belum ada di Ref Produk: '+esc(d.kodeTanpaRef.slice(0,8).join('; '))+
+        (d.kodeTanpaRef.length>8?' …':'');
+    document.getElementById('ooProdNote').textContent=note;
     var tp=d.produkTerbaik||[];
     document.getElementById('ooProdT').innerHTML=
       '<thead><tr><th>Produk</th><th class="r">Leads</th><th class="r">Closing</th><th>Closing rate</th></tr></thead><tbody>'+
