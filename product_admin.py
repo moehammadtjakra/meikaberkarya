@@ -226,9 +226,11 @@ def build_catalog(order_df: pd.DataFrame | None,
             ar["is_retur"] = (all_resi["is_retur"].values if "is_retur" in all_resi else False)
             ar["is_sampai"] = (all_resi["is_sampai"].values if "is_sampai" in all_resi else False)
             j = wb.merge(ar, on="wb", how="left")
+            # Retur % = retur (gagal diterima) ÷ TOTAL seluruh resi produk itu
+            # (bukan hanya sampai+retur), sesuai acuan ekspedisi & asumsi success delivery.
             gg = (j.groupby("SKU")
-                    .agg(sampai=("is_sampai", "sum"), retur=("is_retur", "sum")).reset_index())
-            _den = _num(gg["sampai"] + gg["retur"]).replace(0, np.nan)
+                    .agg(retur=("is_retur", "sum"), total=("wb", "size")).reset_index())
+            _den = _num(gg["total"]).replace(0, np.nan)
             gg["retur_pct"] = _num(gg["retur"]) / _den * 100
             agg = agg.drop(columns=["retur_pct"]).merge(
                 gg[["SKU", "retur_pct"]], on="SKU", how="left")

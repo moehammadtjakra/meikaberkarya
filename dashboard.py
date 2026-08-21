@@ -453,8 +453,9 @@ with tab1:
                 help="CM ÷ Nilai Jual × 100 (memakai CM setelah biaya akuisisi). Otomatis, "
                      "ter-update saat input diubah."),
             "Retur %": st.column_config.NumberColumn("🔒 Retur %", disabled=True, format="%.1f%%",
-                help="% retur produk ini dari histori (order gagal diterima ÷ sampai+retur, "
-                     "via join No. Waybill). Otomatis dari data — tidak bisa diedit."),
+                help="% retur produk ini = resi gagal diterima (Tanda TTD 'Belum Diterima' & "
+                     "Waktu Terima terisi) ÷ TOTAL seluruh resi produk itu (via join No. Waybill "
+                     "ke All Resi). Otomatis dari data — tidak bisa diedit."),
         }
         # --- Urutkan lalu TETAP bisa edit: tombol Urutkan menata ulang baris (edit ikut terbawa) ---
         _sc = st.columns([2, 2, 1.3, 4])
