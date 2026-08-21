@@ -426,8 +426,10 @@ def simulate_multi(baseline: dict, recv_dist: pd.Series,
         net_total = revenue - cogs - return_cost - budget_total   # laba produk (sblm opex)
         margin_jual = nilai_produk - hpp
         opex_var_r = float(p.get("opex_var_resi", 0) or 0)
-        # Contribution Margin per order sukses (setelah fee, +cashback, −opex var)
-        cm = nilai_produk - hpp - cod_fee_rate * (nilai_produk + ongkir) + cashback - opex_var_r
+        # Contribution Margin per order SETELAH biaya akuisisi iklan (CPL ÷ closing)
+        _cac = (cpl / closing) if closing else 0.0
+        cm = (nilai_produk - hpp - cod_fee_rate * (nilai_produk + ongkir) + cashback
+              - opex_var_r - _cac)
         cm_pct = (cm / nilai_produk * 100) if nilai_produk else 0.0
         roi = (net_total / budget_total) if budget_total > 0 else 0
         rows.append({

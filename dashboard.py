@@ -214,7 +214,7 @@ tab1, tab4, tab2, tab3 = st.tabs(["💰 Modul 1 — Simulator Cashflow & Pencair
 _catalog = padmin.build_catalog(data.get("order"), data.get("stock"), df_all)
 # Kolom input (editable) + kolom turunan (disabled)
 _INCOLS = ["Produk", "Budget/Hari", "CPL", "Nilai Produk", "HPP", "Stok (pcs)", "Pcs/Order"]
-_DERIVED = ["CM", "CM%", "Retur %", "Laba/Order"]
+_DERIVED = ["CM", "CM%", "Retur %"]
 _PCOLS = _INCOLS + _DERIVED
 # kunci widget input yang disimpan/dimuat oleh fitur Planning
 _PLAN_KEYS = ["in_modal", "sim_start", "sim_end", "p_closing", "p_success", "p_ncs",
@@ -245,26 +245,23 @@ def seed_master(params: dict | None = None):
     t["CM"] = (_nj - _hp).round().astype(int)
     t["CM%"] = ((_nj - _hp) / _nj.replace(0, np.nan) * 100).round(1)
     t["Retur %"] = np.nan
-    t["Laba/Order"] = t["CM"]     # fallback: tanpa data iklan, samakan dgn CM
     return t[_PCOLS]
 
 
-def _recompute_derived(dfp, ongkir_, cb_pct_, fee_pct_, ovar_, closing_, success_):
-    """Hitung ulang CM, CM% & Laba/Order dari kolom input (live), termasuk CPL.
-    Retur % tetap dari data (tidak dihitung ulang). CM TIDAK bergantung CPL (pra-iklan);
-    Laba/Order = success×CM − biaya retur − CPL/closing (memperhitungkan CPL)."""
+def _recompute_derived(dfp, ongkir_, cb_pct_, fee_pct_, ovar_, closing_, success_=None):
+    """Hitung ulang CM & CM% LIVE dari input (Nilai Jual, HPP, CPL, Closing + rate global).
+    CM = margin per order SETELAH biaya akuisisi iklan:
+        CM = Nilai Jual − HPP − FeeCOD×(Nilai+Ongkir) + Cashback×Ongkir − OpexVar − (CPL÷Closing)
+    Retur % tetap dari data (tidak dihitung ulang)."""
     d = dfp.copy()
     nj = pd.to_numeric(d.get("Nilai Produk"), errors="coerce").fillna(0)
     hp = pd.to_numeric(d.get("HPP"), errors="coerce").fillna(0)
     cpl = pd.to_numeric(d.get("CPL"), errors="coerce").fillna(0)
-    retur = pd.to_numeric(d.get("Retur %"), errors="coerce")
-    cm = nj - hp - (fee_pct_ / 100) * (nj + ongkir_) + (cb_pct_ / 100) * ongkir_ - ovar_
+    cac = (cpl / closing_) if closing_ else 0.0            # biaya iklan per order
+    cm = (nj - hp - (fee_pct_ / 100) * (nj + ongkir_) + (cb_pct_ / 100) * ongkir_
+          - ovar_ - cac)
     d["CM"] = cm.round()
     d["CM%"] = (cm / nj.replace(0, np.nan) * 100).round(1)
-    succ = (1 - retur / 100).where(retur.notna(), success_).clip(0.05, 1.0)
-    cac = (cpl / closing_) if closing_ else 0.0
-    ret_per = ((1 - succ) - config.RETUR_FREE_THRESHOLD).clip(lower=0) * ongkir_
-    d["Laba/Order"] = (succ * cm - (1 - succ) * ret_per - cac).round()
     if "Retur %" not in d.columns:
         d["Retur %"] = np.nan
     return d
@@ -380,10 +377,10 @@ with tab1:
         _src = ("Order + Stock (admin)" if (_catalog is not None and not _catalog.empty)
                 else "histori All Resi (sheet admin tidak tersedia)")
         cap, btn = st.columns([5, 1])
-        cap.caption(f"Sumber: **{_src}**. Nilai Jual (=AoV, dari product_price), HPP (=Pcs×HPP/pcs), "
-                    "Stok, & Retur dari data. **CPL & Budget di-auto-plot optimal** berdasarkan CM & "
-                    "retur. Kolom **CM, CM%, Retur %** otomatis (tidak bisa diedit). Geser ke kanan "
-                    "untuk melihat semua kolom. Sel input tetap bisa Anda ubah manual.")
+        cap.caption(f"Sumber: **{_src}**. **✏️ = bisa diedit** (Budget, CPL, Nilai Jual, HPP, Stok, "
+                    "Pcs/Order) • **🔒 = otomatis, tidak bisa diedit** (CM, CM%, Retur %). CM & CM% "
+                    "**live-update** saat Anda ubah CPL/Closing/Nilai Jual/HPP. Geser ke kanan untuk "
+                    "melihat semua kolom.")
         if btn.button("🎯 Re-plot optimal", width='stretch',
                       help="Hitung ulang CPL & Budget optimal per produk memakai parameter global "
                            "saat ini (closing, success, ongkir, dll)."):
@@ -396,36 +393,35 @@ with tab1:
 
         _money = lambda label: st.column_config.NumberColumn(label, min_value=0, format="localized")
         _int = lambda label, h: st.column_config.NumberColumn(label, min_value=0, step=1, help=h)
-        _cm_help = ("Contribution Margin per order = Nilai Jual − HPP − Fee COD×(Nilai Jual+Ongkir) "
-                    "+ Cashback×Ongkir − Opex variabel. Otomatis dari input.")
+        _cm_help = ("CM = margin per order SETELAH biaya akuisisi iklan.  Rumus: "
+                    "Nilai Jual − HPP − FeeCOD×(Nilai Jual+Ongkir) + Cashback×Ongkir − Opex Variabel "
+                    "− (CPL ÷ Closing).  Bagian (CPL÷Closing) = biaya iklan untuk mendapatkan 1 order "
+                    "(butuh 1/Closing leads @ CPL).  Ter-update otomatis saat CPL, Closing, Nilai "
+                    "Jual, atau HPP diubah.  Catatan: Budget iklan menentukan VOLUME, bukan margin "
+                    "per order, jadi tidak mengubah CM.")
         _colcfg = {
-            "Produk": st.column_config.TextColumn("Produk", width="medium"),
-            "Budget/Hari": _money("Budget/Hari (Rp)"),
-            "CPL": _money("CPL (Rp)"),
+            "Produk": st.column_config.TextColumn("✏️ Produk", width="medium"),
+            "Budget/Hari": _money("✏️ Budget/Hari (Rp)"),
+            "CPL": _money("✏️ CPL (Rp)"),
             "Nilai Produk": st.column_config.NumberColumn(
-                "Nilai Jual / AoV (Rp)", min_value=0, format="localized",
+                "✏️ Nilai Jual / AoV (Rp)", min_value=0, format="localized",
                 help="Average Order Value = nilai jual total produk per order (product_price), "
                      "sudah termasuk jumlah pcs dalam 1 resi."),
             "HPP": st.column_config.NumberColumn(
-                "HPP (Rp)", min_value=0, format="localized",
+                "✏️ HPP (Rp)", min_value=0, format="localized",
                 help="Harga pokok per order = Pcs/Order × HPP per Pcs (dari Import-Stock)."),
-            "Stok (pcs)": _int("Stok (pcs)", "Sisa stok gudang. Order tercukupi stok tidak "
-                                             "menimbulkan biaya beli produk."),
-            "Pcs/Order": _int("Pcs/Order", "Rata-rata pcs produk utama per order (untuk "
-                                           "menghitung berapa order yang bisa dipenuhi stok)."),
-            "CM": st.column_config.NumberColumn("CM (Rp/order)", disabled=True,
+            "Stok (pcs)": _int("✏️ Stok (pcs)", "Sisa stok gudang. Order tercukupi stok tidak "
+                                                "menimbulkan biaya beli produk."),
+            "Pcs/Order": _int("✏️ Pcs/Order", "Rata-rata pcs produk utama per order (untuk "
+                                              "menghitung berapa order yang bisa dipenuhi stok)."),
+            "CM": st.column_config.NumberColumn("🔒 CM (Rp/order)", disabled=True,
                                                 format="localized", help=_cm_help),
-            "CM%": st.column_config.NumberColumn("CM %", disabled=True, format="%.1f%%",
-                help="CM ÷ Nilai Jual × 100. Makin tinggi makin layak di-scale budget-nya."),
-            "Retur %": st.column_config.NumberColumn("Retur %", disabled=True, format="%.1f%%",
-                help="% retur produk ini dari histori (order yang gagal diterima ÷ sampai+retur, "
-                     "via join No. Waybill). Retur tinggi → budget iklan di-scale lebih kecil."),
-            "Laba/Order": st.column_config.NumberColumn("Laba/Order (stlh iklan)", disabled=True,
-                format="localized",
-                help="Laba bersih per order DIKIRIM setelah biaya iklan & retur = "
-                     "success×CM − biaya retur − (CPL ÷ closing). Inilah CM yang sudah "
-                     "memperhitungkan CPL. Positif = tiap order untung setelah akuisisi. "
-                     "Ter-update otomatis saat Anda ubah CPL/Nilai/HPP."),
+            "CM%": st.column_config.NumberColumn("🔒 CM %", disabled=True, format="%.1f%%",
+                help="CM ÷ Nilai Jual × 100 (memakai CM setelah biaya akuisisi). Otomatis, "
+                     "ter-update saat input diubah."),
+            "Retur %": st.column_config.NumberColumn("🔒 Retur %", disabled=True, format="%.1f%%",
+                help="% retur produk ini dari histori (order gagal diterima ÷ sampai+retur, "
+                     "via join No. Waybill). Otomatis dari data — tidak bisa diedit."),
         }
         # --- Urutkan lalu TETAP bisa edit: tombol Urutkan menata ulang baris (edit ikut terbawa) ---
         _sc = st.columns([2, 2, 1.3, 4])

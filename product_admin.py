@@ -156,27 +156,23 @@ def optimize_table(catalog: pd.DataFrame, params: dict) -> pd.DataFrame:
         retur_pct = float(rp_) if pd.notna(rp_) else np.nan
         success_p = (1 - retur_pct / 100) if pd.notna(retur_pct) else success
         success_p = min(max(success_p, 0.05), 1.0)
-        # Contribution Margin per order sukses (setelah COD fee, +cashback, −opex var)
-        cm = jual - hpp - fee * (jual + ongkir) + cb_pct * ongkir - ovar
-        cm_pct = (cm / jual * 100) if jual else 0.0
-        # nilai ekspektasi margin per LEAD (pakai success per-produk) → breakeven CPL
-        be_cpl = closing * success_p * cm
+        # margin kotor produk (sebelum iklan) — dipakai internal utk set CPL & budget
+        cm_gross = jual - hpp - fee * (jual + ongkir) + cb_pct * ongkir - ovar
+        be_cpl = closing * success_p * cm_gross               # breakeven CPL
         cpl = int(min(cmax, max(cmin, round(be_cpl * frac / 100.0) * 100)))
-        profitable = be_cpl > cmin and cm > 0
-        score = cm * success_p                              # bobot alokasi budget
+        profitable = be_cpl > cmin and cm_gross > 0
+        score = cm_gross * success_p                          # bobot alokasi budget
         stock_orders = (stok // pcs) if pcs > 0 else 0
-        # LABA/ORDER (stlh iklan): biaya iklan per order = CPL ÷ closing (leads utk 1 order);
-        # laba/order dikirim = success×CM − biaya retur − biaya iklan/order.
+        # CM yang DITAMPILKAN = margin per order setelah biaya akuisisi iklan (CPL ÷ closing)
         cac = (cpl / closing) if closing else 0.0
-        ret_per = max((1 - success_p) - config.RETUR_FREE_THRESHOLD, 0.0) * ongkir
-        net_order = success_p * cm - (1 - success_p) * ret_per - cac
+        cm = cm_gross - cac
+        cm_pct = (cm / jual * 100) if jual else 0.0
         rows.append({
             "Produk": str(r["nama"]), "CPL": cpl,
             "Nilai Produk": int(jual), "HPP": int(hpp),
             "Stok (pcs)": stok, "Pcs/Order": pcs,
             "AoV": int(jual), "CM": int(round(cm)), "CM%": round(cm_pct, 1),
             "Retur %": (round(retur_pct, 1) if pd.notna(retur_pct) else np.nan),
-            "Laba/Order": int(round(net_order)),
             "_score": score, "_be_cpl": be_cpl, "_profitable": profitable,
             "_stock_orders": stock_orders, "_n": int(r.get("n_orders", 0)),
         })
@@ -201,7 +197,7 @@ def optimize_table(catalog: pd.DataFrame, params: dict) -> pd.DataFrame:
     df["Budget/Hari"] = df["Budget/Hari"].astype(int)
 
     cols = ["Produk", "Budget/Hari", "CPL", "Nilai Produk", "HPP",
-            "Stok (pcs)", "Pcs/Order", "AoV", "CM", "CM%", "Retur %", "Laba/Order"]
+            "Stok (pcs)", "Pcs/Order", "AoV", "CM", "CM%", "Retur %"]
     extra = ["_score", "_be_cpl", "_profitable", "_stock_orders", "_n"]
     df = df[cols + extra].sort_values(["_score", "Budget/Hari"], ascending=False).reset_index(drop=True)
     return df
