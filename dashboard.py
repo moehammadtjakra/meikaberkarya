@@ -44,7 +44,7 @@ st.markdown(f"""
 :root {{ --blue:{T['blue']}; --green:{T['green']}; }}
 .stApp {{ background:{T['bg']}; color:{T['text']}; }}
 section[data-testid="stSidebar"] {{ background:{T['panel']}; }}
-.block-container {{ padding-top:1.2rem; padding-bottom:2rem; max-width:1500px; }}
+.block-container {{ padding-top:4.2rem; padding-bottom:2rem; max-width:1500px; }}
 h1,h2,h3,h4 {{ color:{T['text']}; }}
 .kpi {{ background:linear-gradient(145deg,{T['card']},{T['panel']});
         border:1px solid {T['grid']}; border-left:4px solid var(--blue);
@@ -385,12 +385,28 @@ with tab1:
             st.session_state.pop("editor_master", None)
             st.rerun()
 
+        # --- Kontrol urutan: sort semua kolom naik/turun ---
+        _sc = st.columns([2, 2, 4])
+        _sortby = _sc[0].selectbox("↕️ Urutkan kolom", ["(bawaan)"] + _PCOLS, key="prod_sort_col")
+        _sortdir = _sc[1].radio("Arah", ["Turun", "Naik"], horizontal=True, key="prod_sort_dir")
+        _base = st.session_state["produk_master"]
+        if _sortby != "(bawaan)" and _sortby in _base.columns:
+            _base = _base.sort_values(_sortby, ascending=(_sortdir == "Naik"),
+                                      na_position="last", kind="stable").reset_index(drop=True)
+        # bila urutan berubah, reset state editor agar sel selaras dgn urutan baru
+        _sortsig = f"{_sortby}|{_sortdir}"
+        if st.session_state.get("_prod_sort_sig") != _sortsig:
+            st.session_state["_prod_sort_sig"] = _sortsig
+            st.session_state.pop("editor_master", None)
+        _sc[2].caption("Sort mengurutkan tampilan tabel. Mengubah urutan me-reset sel yang sedang "
+                       "diedit (belum tersimpan) — sesuaikan setelah memilih urutan.")
+
         _money = lambda label: st.column_config.NumberColumn(label, min_value=0, format="localized")
         _int = lambda label, h: st.column_config.NumberColumn(label, min_value=0, step=1, help=h)
         _cm_help = ("Contribution Margin per order = Nilai Jual − HPP − Fee COD×(Nilai Jual+Ongkir) "
                     "+ Cashback×Ongkir − Opex variabel. Otomatis dari input.")
         edited = st.data_editor(
-            st.session_state["produk_master"], num_rows="dynamic", width='stretch',
+            _base, num_rows="dynamic", width='stretch',
             height=320, key="editor_master",
             column_config={
                 "Produk": st.column_config.TextColumn("Produk", width="medium"),
