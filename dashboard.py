@@ -304,8 +304,25 @@ with tab1:
                         pass
                 st.session_state[_k] = _v
         if _d.get("produk_master"):
-            st.session_state["produk_master"] = pd.DataFrame(_d["produk_master"])
+            _pm = pd.DataFrame(_d["produk_master"])
+            # Pasang kembali kolom DATA (Total Resi, Closing Rate, Pcs Terjual, Retur %)
+            # dari katalog terkini via nama Produk — plan hanya menyimpan kolom input.
+            _datacols = ["Total Resi", "Closing Rate", "Pcs Terjual", "Retur %"]
+            try:
+                _lut = seed_master().drop_duplicates("Produk").set_index("Produk")
+                for _c in _datacols:
+                    _pm[_c] = (_pm["Produk"].map(_lut[_c]) if _c in _lut.columns else np.nan)
+            except Exception:
+                for _c in _datacols:
+                    if _c not in _pm.columns:
+                        _pm[_c] = np.nan
+            for _c in ("CM", "CM%"):
+                if _c not in _pm.columns:
+                    _pm[_c] = np.nan
+            st.session_state["produk_master"] = _pm.reindex(
+                columns=[c for c in _PCOLS if c in _pm.columns])
         st.session_state.pop("editor_master", None)
+        st.session_state.pop("_prod_insig", None)         # paksa recompute CM/CM% stlh muat
         for _kk in [k for k in st.session_state if str(k).startswith(("cf_edit_", "cfed_"))]:
             st.session_state.pop(_kk, None)
 
