@@ -40,12 +40,18 @@ def global_closing_rate(oo_df: pd.DataFrame | None) -> float | None:
     return float((paid & stat).sum() / n) if n else None
 
 
+def _norm_var(s):
+    """Normalisasi teks variation utk lookup RefProduk (buang non-alnum, lowercase)."""
+    return s.astype(str).str.lower().str.replace(r"[^a-z0-9]+", "", regex=True)
+
+
 def _closing_per_sku(oo_df, ref_df, order_df):
-    """Closing rate (%) per SKU dari OrderOnline. Acuan SKU (tanpa variation):
-      1) order_id → Import-Order.SKU (resolusi final sistem admin, paling reliable), lalu
-      2) fallback product_code → SKU dari RefProduk HANYA untuk product_code yang unik.
-    Product_code ganda (>1 SKU di RefProduk) tidak dipetakan lewat fallback — rapikan
-    product_code agar unik di RefProduk untuk closing rate yang akurat."""
+    """Closing rate (%) per SKU dari OrderOnline. Resolusi SKU (acuan Import-Order & RefProduk):
+      1) order_id → Import-Order.SKU (resolusi final sistem admin, paling reliable),
+      2) lookup RefProduk (product_code + variation) → SKU (untuk kode yang dipakai >1 produk,
+         mis. 'TPT' → Sikat ATAU Pembesar — dibedakan per baris RefProduk),
+      3) fallback product_code → SKU untuk product_code yang unik.
+    RefProduk = tabel acuan: kolom product_code (kode OrderOnline) di-resolve jadi kolom SKU."""
     if oo_df is None or len(oo_df) == 0:
         return None
     oo = oo_df.copy()
@@ -54,6 +60,7 @@ def _closing_per_sku(oo_df, ref_df, order_df):
         return None
     oo["_oid"] = oo.get("order_id", pd.Series("", index=oo.index)).astype(str).str.strip()
     oo["_pc"] = oo["product_code"].astype(str).str.strip()
+    oo["_v"] = _norm_var(oo["variation"]) if "variation" in oo.columns else ""
 
     # (1) order_id → SKU dari Import-Order
     oid2sku = {}
@@ -65,18 +72,23 @@ def _closing_per_sku(oo_df, ref_df, order_df):
             io = io[io["_sku"].ne("") & io["_sku"].str.lower().ne("nan")]
             oid2sku = io.groupby("_oid")["_sku"].first().to_dict()
 
-    # (2) fallback product_code → SKU (unik saja) dari RefProduk
-    pc2sku = {}
+    # (2) lookup RefProduk (product_code+variation)→SKU  &  (3) product_code unik→SKU
+    pcvar2sku, pc2sku = {}, {}
     if ref_df is not None and len(ref_df):
         rf = ref_df.copy(); rf.columns = [str(c).strip() for c in rf.columns]
         if {"product_code", "SKU"}.issubset(rf.columns):
             rf["_pc"] = rf["product_code"].astype(str).str.strip()
             rf["_sku"] = rf["SKU"].astype(str).str.strip()
+            rf["_v"] = _norm_var(rf["Variation"]) if "Variation" in rf.columns else ""
+            pcvar2sku = {(r["_pc"], r["_v"]): r["_sku"] for _, r in rf.iterrows()}
             uni = rf.groupby("_pc")["_sku"].nunique()
             pc2sku = {pc: rf.loc[rf["_pc"] == pc, "_sku"].iloc[0] for pc in uni[uni == 1].index}
 
-    oo["_sku"] = oo["_oid"].map(oid2sku)
-    oo["_sku"] = oo["_sku"].fillna(oo["_pc"].map(pc2sku))
+    def _resolve(row):
+        return (oid2sku.get(row["_oid"])
+                or pcvar2sku.get((row["_pc"], row["_v"]))
+                or pc2sku.get(row["_pc"]))
+    oo["_sku"] = oo.apply(_resolve, axis=1)
 
     paid = oo.get("payment_status", pd.Series("", index=oo.index)).astype(str).str.lower().eq("paid")
     stat = oo.get("status", pd.Series("", index=oo.index)).astype(str).str.lower().isin(
