@@ -412,24 +412,25 @@ with tab1:
                 help="% retur produk ini dari histori (order yang gagal diterima ÷ sampai+retur, "
                      "via join No. Waybill). Retur tinggi → budget iklan di-scale lebih kecil."),
         }
-        _mode = st.radio(
-            "Mode tabel produk",
-            ["✏️ Edit nilai", "🔃 Urutkan / lihat (klik header)"],
-            horizontal=True, key="prod_mode",
-            help="Edit: ubah sel. Urutkan: tabel read-only, klik nama kolom untuk sort "
-                 "naik/turun (fitur sort header hanya ada di mode ini).")
-        if _mode.startswith("✏️"):
-            edited = st.data_editor(
-                st.session_state["produk_master"], num_rows="dynamic", width='stretch',
-                height=320, key="editor_master", column_config=_colcfg)
-            st.session_state["produk_current"] = edited
-        else:
-            _view = st.session_state.get("produk_current", st.session_state["produk_master"])
-            st.dataframe(_view, width='stretch', height=320, hide_index=True,
-                         column_config=_colcfg)
-            st.caption("🔃 Klik nama kolom untuk urut naik/turun. Untuk mengubah nilai, "
-                       "kembali ke **✏️ Edit nilai**.")
-            edited = _view
+        # --- Urutkan lalu TETAP bisa edit: tombol Urutkan menata ulang baris (edit ikut terbawa) ---
+        _sc = st.columns([2, 2, 1.3, 4])
+        _sortby = _sc[0].selectbox("Urutkan kolom", ["(bawaan)"] + _PCOLS, key="prod_sort_col")
+        _sortdir = _sc[1].radio("Arah", ["Turun", "Naik"], horizontal=True, key="prod_sort_dir")
+        if _sc[2].button("↕️ Urutkan", width='stretch',
+                         help="Tata ulang baris sesuai kolom & arah; edit yang sudah ada ikut terbawa."):
+            _cur = st.session_state.get("produk_current", st.session_state["produk_master"]).copy()
+            if _sortby != "(bawaan)" and _sortby in _cur.columns:
+                _cur = _cur.sort_values(_sortby, ascending=(_sortdir == "Naik"),
+                                        na_position="last", kind="stable").reset_index(drop=True)
+            st.session_state["produk_master"] = _cur
+            st.session_state.pop("editor_master", None)
+            st.rerun()
+        _sc[3].caption("Pilih kolom & arah lalu klik **Urutkan** — tabel tersusun dan **tetap bisa "
+                       "diedit** dalam urutan itu; edit yang sudah ada ikut terbawa.")
+
+        edited = st.data_editor(
+            st.session_state["produk_master"], num_rows="dynamic", width='stretch',
+            height=320, key="editor_master", column_config=_colcfg)
         # Kolom CM/CM% (disabled) menyegar saat tekan "Re-plot optimal". Edit manual pada
         # Nilai/HPP tetap dipakai simulasi (via `edited`), CM tampil ter-update usai re-plot.
         st.session_state["produk_current"] = edited     # snapshot utk fitur Planning (aman, key beda)
