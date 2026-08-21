@@ -60,7 +60,10 @@ h1,h2,h3,h4 {{ color:{T['text']}; }}
             font-size:.9rem; }}
 .section-banner {{ background:linear-gradient(90deg,{T['blue']}22,{T['card']});
             border-left:5px solid {T['blue']}; border-radius:10px;
-            padding:10px 16px; margin:6px 0 10px 0; }}
+            padding:10px 16px; margin:6px 0 10px 0; scroll-margin-top:5rem; }}
+/* offset agar anchor navbar tidak tertutup toolbar Streamlit yang fixed */
+[data-testid="stVerticalBlockBorderWrapper"] {{ scroll-margin-top:5rem; }}
+html {{ scroll-behavior:smooth; }}
 .section-banner .st {{ color:{T['text']}; font-size:1.05rem; font-weight:700; }}
 .section-banner .sd {{ color:{T['muted']}; font-size:.78rem; margin-top:2px; }}
 .section-banner.amber {{ background:linear-gradient(90deg,{T['amber']}22,{T['card']});
@@ -104,10 +107,9 @@ def kpi(col, label, value, sub="", cls="", help=""):
 
 def section(title, desc="", cls="", anchor=None):
     """Banner section besar untuk mengelompokkan area Modul 1."""
-    a = (f'<div id="{anchor}" style="position:relative;top:-70px;visibility:hidden;"></div>'
-         if anchor else "")
+    aid = f' id="{anchor}"' if anchor else ""
     st.markdown(
-        f'{a}<div class="section-banner {cls}"><div class="st">{title}</div>'
+        f'<div{aid} class="section-banner {cls}"><div class="st">{title}</div>'
         f'<div class="sd">{desc}</div></div>', unsafe_allow_html=True)
 
 
