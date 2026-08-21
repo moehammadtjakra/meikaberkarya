@@ -257,8 +257,9 @@ function getStatus() {
   }
   return {
     spreadsheetName: ss.getName(),
-    allResi:   count(CONFIG.allResi.sheetName),
-    reconcile: count(CONFIG.reconcile.sheetName)
+    allResi:     count(CONFIG.allResi.sheetName),
+    reconcile:   count(CONFIG.reconcile.sheetName),
+    orderOnline: count(ORDER_CFG.sheetName)          // sheet OrderOnline (Order.gs)
   };
 }
 

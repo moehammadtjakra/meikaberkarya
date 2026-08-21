@@ -442,16 +442,21 @@ with tab1:
         edited = st.data_editor(
             st.session_state["produk_master"], num_rows="dynamic", width='stretch',
             height=320, key="editor_master", column_config=_colcfg)
-        # LIVE-UPDATE kolom turunan: hitung ulang CM & CM% dari input terbaru (termasuk CPL),
-        # tulis-balik SELURUH tabel (input + turunan) lalu redraw sekali agar konsisten.
+        # LIVE-UPDATE kolom turunan (CM, CM%) dari input terbaru — termasuk CPL.
+        # Rerun HANYA saat INPUT berubah (pakai signature), sehingga tidak loop.
         _ed = _recompute_derived(edited, ongkir, cashback_pct, cod_fee_pct,
                                  opex_var_resi, closing).reset_index(drop=True)
-        _pm = st.session_state["produk_master"]
-        _same = (_ed.shape == _pm.shape) and bool(
-            (_ed.astype(str).values == _pm.reset_index(drop=True).astype(str).values).all())
-        if not _same:
+        # Signature INPUT ternormalisasi (numerik dibulatkan) — kebal drift format,
+        # jadi rerun berhenti begitu input stabil (tidak loop).
+        _sig = edited[_INCOLS].copy()
+        for _c in ["Budget/Hari", "CPL", "Nilai Produk", "HPP", "Stok (pcs)", "Pcs/Order"]:
+            if _c in _sig:
+                _sig[_c] = pd.to_numeric(_sig[_c], errors="coerce").round(2)
+        _insig = f"{ongkir}|{cashback_pct}|{cod_fee_pct}|{closing}|" + _sig.to_json()
+        if st.session_state.get("_prod_insig") != _insig:
+            st.session_state["_prod_insig"] = _insig
             st.session_state["produk_master"] = _ed
-            st.rerun()
+            st.rerun()                              # sekali, lalu signature cocok → berhenti
         st.session_state["produk_current"] = _ed        # snapshot utk Planning
         edited = _ed
 

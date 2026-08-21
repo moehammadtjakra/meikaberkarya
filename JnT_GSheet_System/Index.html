@@ -175,7 +175,27 @@
         <div class="scrollbox"><table class="tbl" id="rwRec"></table></div>
       </div>
 
-      <div class="foot">Upsert by No. Waybill · file yang diupload ulang memperbarui baris yang sama, bukan menduplikasi.</div>
+      <div class="card">
+        <h2>3 · OrderOnline <span class="tag" id="cOrder">…</span></h2>
+        <p class="d">Export order dari platform <b>OrderOnline</b> (.xlsx/.csv). Pilih <b>akun</b> asal file dulu,
+          lalu upload — bisa beberapa file sekaligus. Data disimpan di sheet terpisah <b>OrderOnline</b>,
+          di-upsert per <b>akun + order_id</b>. Dipakai untuk analisa leads &amp; closing di Dashboard.</p>
+        <label class="fld" for="ordAkun">Akun OrderOnline *</label>
+        <select class="sel" id="ordAkun" style="max-width:260px;margin-bottom:10px;"></select>
+        <label class="drop" id="dropOrder">
+          <span class="txt">Klik untuk pilih file (bisa banyak), atau tarik ke sini</span>
+          <input type="file" id="fileOrder" accept=".xlsx,.xls,.csv" multiple>
+        </label>
+        <div class="files" id="lsOrder"></div>
+        <div class="row">
+          <button class="go" id="btnOrder" disabled onclick="sendOrder()">Proses &amp; Update</button>
+          <button class="ghost" onclick="clearFiles('order')">Kosongkan</button>
+        </div>
+        <div class="msg" id="msgOrder"></div>
+      </div>
+
+      <div class="foot">Upsert by No. Waybill (All Resi / Reconcile) &amp; Akun + order_id (OrderOnline) ·
+        file yang diupload ulang memperbarui baris yang sama, bukan menduplikasi.</div>
     </div>
 
     <!-- ================= DASHBOARD ================= -->
@@ -311,7 +331,8 @@
 
   var SLOT = {
     allResi:   { files:[], input:'fileAll', btn:'btnAll', msg:'msgAll', drop:'dropAll', list:'lsAll', rw:'rwAll' },
-    reconcile: { files:[], input:'fileRec', btn:'btnRec', msg:'msgRec', drop:'dropRec', list:'lsRec', rw:'rwRec' }
+    reconcile: { files:[], input:'fileRec', btn:'btnRec', msg:'msgRec', drop:'dropRec', list:'lsRec', rw:'rwRec' },
+    order:     { files:[], input:'fileOrder', btn:'btnOrder', msg:'msgOrder', drop:'dropOrder', list:'lsOrder' }
   };
   var DASH={}, DASH_LOADED=false, SORT={k:'total', asc:false};
 
@@ -337,10 +358,17 @@
     document.getElementById('ssName').textContent='Spreadsheet: '+s.spreadsheetName;
     document.getElementById('cAll').textContent=nf(s.allResi)+' baris';
     document.getElementById('cRec').textContent=nf(s.reconcile)+' baris';
+    if(s.orderOnline!=null) document.getElementById('cOrder').textContent=nf(s.orderOnline)+' baris';
   }).withFailureHandler(function(){
     document.getElementById('ssName').textContent='(cek izin spreadsheet)';
   }).getStatus();
   loadRiwayat('allResi'); loadRiwayat('reconcile');
+
+  // isi dropdown akun OrderOnline
+  google.script.run.withSuccessHandler(function(a){
+    document.getElementById('ordAkun').innerHTML=(a||[]).map(function(x){
+      return '<option value="'+esc(x)+'">'+esc(x)+'</option>';}).join('');
+  }).withFailureHandler(function(){}).getAkunOrderOnline();
 
   // ---------- pilih file (MULTI) ----------
   Object.keys(SLOT).forEach(function(key){
@@ -394,6 +422,41 @@
         }).processUploadFiles(payload, key);
     });
   }
+  // ---------- kirim file OrderOnline (dgn akun) ----------
+  function sendOrder(){
+    var s=SLOT.order;
+    if(!s.files.length) return;
+    var akun=document.getElementById('ordAkun').value;
+    if(!akun){ show(s.msg,'err','Pilih akun OrderOnline dulu.'); return; }
+    document.getElementById(s.btn).disabled=true;
+    show(s.msg,'info','<span class="spin"></span>Membaca '+s.files.length+' file…');
+    bacaSemua(s.files, function(payload){
+      show(s.msg,'info','<span class="spin"></span>Memproses '+payload.length+' file (akun '+esc(akun)+') di server…');
+      google.script.run.withSuccessHandler(function(r){ selesaiOrder(r); })
+        .withFailureHandler(function(e){
+          document.getElementById(s.btn).disabled=false;
+          show(s.msg,'err','✕ '+(e&&e.message?e.message:'Gagal.'));
+        }).processOrderUploadFiles(payload, akun);
+    });
+  }
+  function selesaiOrder(r){
+    var det=(r.perFile||[]).map(function(f){
+      return '<div style="margin-top:4px;">• <b>'+esc(f.name)+'</b> — '+nf(f.jumlah)+' order · '+
+        'baru '+nf(f.added)+' · update '+nf(f.updated)+
+        (f.dilewati?' · '+nf(f.dilewati)+' baris tanpa order_id dilewati':'')+'</div>';
+    }).join('');
+    var gagal=(r.gagal&&r.gagal.length)
+      ? '<div style="margin-top:6px;color:#9a1420;">Gagal: '+r.gagal.map(function(g){return esc(g.name)+' — '+esc(g.pesan);}).join('; ')+'</div>':'';
+    show('msgOrder', (r.gagal&&r.gagal.length)?'info':'ok',
+      '✔ <b>OrderOnline</b> (akun '+esc(r.akun)+') diperbarui dari <b>'+r.jumlahFile+'</b> file · '+
+      'baru <b>'+nf(r.added)+'</b> · update <b>'+nf(r.updated)+'</b> · total sheet <b>'+nf(r.total)+'</b>'+det+gagal);
+    SLOT.order.files=[]; drawFiles('order');
+    DASH_LOADED=false;
+    google.script.run.withSuccessHandler(function(st){
+      if(st.orderOnline!=null) document.getElementById('cOrder').textContent=nf(st.orderOnline)+' baris';
+    }).getStatus();
+  }
+
   /** baca semua file jadi base64 secara berurutan */
   function bacaSemua(files, cb){
     var out=[], i=0;
