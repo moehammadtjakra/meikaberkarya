@@ -214,7 +214,7 @@ tab1, tab4, tab2, tab3 = st.tabs(["💰 Modul 1 — Simulator Cashflow & Pencair
 _catalog = padmin.build_catalog(data.get("order"), data.get("stock"), df_all)
 # Kolom input (editable) + kolom turunan (disabled)
 _INCOLS = ["Produk", "Budget/Hari", "CPL", "Nilai Produk", "HPP", "Stok (pcs)", "Pcs/Order"]
-_DERIVED = ["CM", "CM%", "Retur %"]
+_DERIVED = ["CM", "CM%", "Retur %", "Laba/Order"]
 _PCOLS = _INCOLS + _DERIVED
 # kunci widget input yang disimpan/dimuat oleh fitur Planning
 _PLAN_KEYS = ["in_modal", "sim_start", "sim_end", "p_closing", "p_success", "p_ncs",
@@ -245,6 +245,7 @@ def seed_master(params: dict | None = None):
     t["CM"] = (_nj - _hp).round().astype(int)
     t["CM%"] = ((_nj - _hp) / _nj.replace(0, np.nan) * 100).round(1)
     t["Retur %"] = np.nan
+    t["Laba/Order"] = t["CM"]     # fallback: tanpa data iklan, samakan dgn CM
     return t[_PCOLS]
 
 
@@ -411,6 +412,12 @@ with tab1:
             "Retur %": st.column_config.NumberColumn("Retur %", disabled=True, format="%.1f%%",
                 help="% retur produk ini dari histori (order yang gagal diterima ÷ sampai+retur, "
                      "via join No. Waybill). Retur tinggi → budget iklan di-scale lebih kecil."),
+            "Laba/Order": st.column_config.NumberColumn("Laba/Order (stlh iklan)", disabled=True,
+                format="localized",
+                help="Laba bersih per order DIKIRIM setelah biaya iklan & retur = "
+                     "success×CM − biaya retur − (CPL ÷ closing). Inilah CM yang sudah "
+                     "memperhitungkan CPL. Positif = tiap order untung setelah akuisisi. "
+                     "Refresh saat 'Re-plot optimal'."),
         }
         # --- Urutkan lalu TETAP bisa edit: tombol Urutkan menata ulang baris (edit ikut terbawa) ---
         _sc = st.columns([2, 2, 1.3, 4])
