@@ -40,21 +40,44 @@ def global_closing_rate(oo_df: pd.DataFrame | None) -> float | None:
     return float((paid & stat).sum() / n) if n else None
 
 
-def _closing_per_sku(oo_df, ref_df):
-    """Closing rate (%) per SKU dari OrderOnline, map product_code→SKU via RefProduk."""
-    if oo_df is None or len(oo_df) == 0 or ref_df is None or len(ref_df) == 0:
+def _closing_per_sku(oo_df, ref_df, order_df):
+    """Closing rate (%) per SKU dari OrderOnline. Acuan SKU (tanpa variation):
+      1) order_id → Import-Order.SKU (resolusi final sistem admin, paling reliable), lalu
+      2) fallback product_code → SKU dari RefProduk HANYA untuk product_code yang unik.
+    Product_code ganda (>1 SKU di RefProduk) tidak dipetakan lewat fallback — rapikan
+    product_code agar unik di RefProduk untuk closing rate yang akurat."""
+    if oo_df is None or len(oo_df) == 0:
         return None
-    oo = oo_df.copy(); rf = ref_df.copy()
+    oo = oo_df.copy()
     oo.columns = [str(c).strip() for c in oo.columns]
-    rf.columns = [str(c).strip() for c in rf.columns]
-    if not {"product_code"}.issubset(oo.columns) or not {"product_code", "SKU"}.issubset(rf.columns):
+    if "product_code" not in oo.columns:
         return None
-    rf["product_code"] = rf["product_code"].astype(str).str.strip()
-    rf["SKU"] = rf["SKU"].astype(str).str.strip()
-    code2sku = (rf.groupby("product_code")["SKU"]
-                  .agg(lambda s: s.mode().iloc[0] if len(s.mode()) else s.iloc[0]).to_dict())
-    oo["product_code"] = oo["product_code"].astype(str).str.strip()
-    oo["_sku"] = oo["product_code"].map(code2sku)
+    oo["_oid"] = oo.get("order_id", pd.Series("", index=oo.index)).astype(str).str.strip()
+    oo["_pc"] = oo["product_code"].astype(str).str.strip()
+
+    # (1) order_id → SKU dari Import-Order
+    oid2sku = {}
+    if order_df is not None and len(order_df):
+        io = order_df.copy(); io.columns = [str(c).strip() for c in io.columns]
+        if {"order_id", "SKU"}.issubset(io.columns):
+            io["_oid"] = io["order_id"].astype(str).str.strip()
+            io["_sku"] = io["SKU"].astype(str).str.strip()
+            io = io[io["_sku"].ne("") & io["_sku"].str.lower().ne("nan")]
+            oid2sku = io.groupby("_oid")["_sku"].first().to_dict()
+
+    # (2) fallback product_code → SKU (unik saja) dari RefProduk
+    pc2sku = {}
+    if ref_df is not None and len(ref_df):
+        rf = ref_df.copy(); rf.columns = [str(c).strip() for c in rf.columns]
+        if {"product_code", "SKU"}.issubset(rf.columns):
+            rf["_pc"] = rf["product_code"].astype(str).str.strip()
+            rf["_sku"] = rf["SKU"].astype(str).str.strip()
+            uni = rf.groupby("_pc")["_sku"].nunique()
+            pc2sku = {pc: rf.loc[rf["_pc"] == pc, "_sku"].iloc[0] for pc in uni[uni == 1].index}
+
+    oo["_sku"] = oo["_oid"].map(oid2sku)
+    oo["_sku"] = oo["_sku"].fillna(oo["_pc"].map(pc2sku))
+
     paid = oo.get("payment_status", pd.Series("", index=oo.index)).astype(str).str.lower().eq("paid")
     stat = oo.get("status", pd.Series("", index=oo.index)).astype(str).str.lower().isin(
         ["completed", "processing"])
@@ -168,7 +191,7 @@ def build_catalog(order_df: pd.DataFrame | None,
     # --- Closing rate per SKU dari OrderOnline ---
     agg["closing_rate"] = np.nan
     try:
-        _clo = _closing_per_sku(oo_df, ref_df)
+        _clo = _closing_per_sku(oo_df, ref_df, order_df)
         if _clo is not None and len(_clo):
             agg = agg.drop(columns=["closing_rate"]).merge(_clo, on="SKU", how="left")
     except Exception:
