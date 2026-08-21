@@ -253,7 +253,7 @@ def _recompute_derived(dfp, ongkir_, cb_pct_, fee_pct_, ovar_):
     hp = pd.to_numeric(d.get("HPP"), errors="coerce").fillna(0)
     cm = nj - hp - (fee_pct_ / 100) * (nj + ongkir_) + (cb_pct_ / 100) * ongkir_ - ovar_
     d["CM"] = cm.round()
-    d["CM%"] = np.where(nj > 0, cm / nj * 100, 0).round(1)
+    d["CM%"] = (cm / nj.replace(0, np.nan) * 100).round(1)
     if "Retur %" not in d.columns:
         d["Retur %"] = np.nan
     return d

@@ -22,7 +22,7 @@
  *   → ikon pensil → dropdown Version → pilih "New version" → Deploy
  *   ⚠ Kalau dropdown Version tidak diubah ke "New version", kode lama tetap jalan.
  */
-var APP_VERSION = 'v8.2 — handover resi harian (PDF pickup J&T)';
+var APP_VERSION = 'v8.3 — konversi Drive retry otomatis (atasi Internal Error saat import)';
 
 var CFG = {
   spreadsheetId: '',              // '' = spreadsheet aktif
@@ -1093,11 +1093,37 @@ function toObjects_(vals, hdrRow) {
   }
   return out;
 }
+/**
+ * Konversi blob (xlsx/xls) -> Google Sheet sementara.
+ *
+ * Google kadang membalas "Internal Error" pada konversi ini — gangguan
+ * SEMENTARA di sisi Drive, bukan file yang rusak (lebih sering untuk file besar).
+ * Karena itu dicoba beberapa kali dengan jeda menaik sebelum menyerah, dan
+ * pesan gagalnya dibuat jelas supaya user tahu cukup mengulang Import.
+ */
 function driveConvert_(blob) {
-  var name = '__tmp_ao_' + Date.now();
-  if (typeof Drive.Files.create === 'function')
-    return Drive.Files.create({ name: name, mimeType: MimeType.GOOGLE_SHEETS }, blob, { supportsAllDrives: true });
-  return Drive.Files.insert({ title: name, mimeType: MimeType.GOOGLE_SHEETS }, blob, { convert: true });
+  var meta = { title: '__tmp_ao_' + Date.now() };   // v2 pakai "title"
+  var metaV3 = { name: meta.title, mimeType: MimeType.GOOGLE_SHEETS };
+  var pakaiV3 = (typeof Drive.Files.create === 'function');
+  var lastErr;
+
+  for (var i = 1; i <= 4; i++) {
+    try {
+      return pakaiV3
+        ? Drive.Files.create(metaV3, blob, { supportsAllDrives: true })
+        : Drive.Files.insert({ title: meta.title, mimeType: MimeType.GOOGLE_SHEETS }, blob, { convert: true });
+    } catch (e) {
+      lastErr = e;
+      var msg = String((e && e.message) || e);
+      var sementara = /internal error|backend error|rate limit|user rate|try again|timeout|\b500\b|\b503\b|\b429\b/i.test(msg);
+      if (i < 4 && sementara) { Utilities.sleep(1500 * i); continue; }   // 1,5s → 3s → 4,5s
+      throw new Error('Gagal mengubah file Excel jadi Google Sheet: ' + msg + '. ' +
+        (sementara
+          ? 'Ini biasanya gangguan sementara Google Drive — tunggu sebentar lalu klik Import lagi.'
+          : 'Pastikan file benar .xlsx/.csv yang valid & tidak rusak. Kalau perlu, export ulang dari OrderOnline.'));
+    }
+  }
+  throw lastErr;
 }
 function outFolder_() {
   return CFG.driveFolderId ? DriveApp.getFolderById(CFG.driveFolderId) : DriveApp.getRootFolder();

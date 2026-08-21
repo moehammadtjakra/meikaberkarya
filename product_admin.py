@@ -112,7 +112,9 @@ def build_catalog(order_df: pd.DataFrame | None,
         gg = (j.groupby("SKU")
                 .agg(sampai=("is_sampai", "sum"), retur=("is_retur", "sum")).reset_index())
         gg["den"] = gg["sampai"] + gg["retur"]
-        gg["retur_pct"] = np.where(gg["den"] > 0, gg["retur"] / gg["den"] * 100, np.nan)
+        # bagi lewat denominator yang 0-nya diganti NaN → tak ada ZeroDivisionError
+        _den = _num(gg["den"]).replace(0, np.nan)
+        gg["retur_pct"] = _num(gg["retur"]) / _den * 100
         agg = agg.drop(columns=["retur_pct"]).merge(
             gg[["SKU", "retur_pct"]], on="SKU", how="left")
     agg["retur_pct"] = _num(agg["retur_pct"]).round(1)
