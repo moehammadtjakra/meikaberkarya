@@ -385,52 +385,51 @@ with tab1:
             st.session_state.pop("editor_master", None)
             st.rerun()
 
-        # --- Kontrol urutan: sort semua kolom naik/turun ---
-        _sc = st.columns([2, 2, 4])
-        _sortby = _sc[0].selectbox("↕️ Urutkan kolom", ["(bawaan)"] + _PCOLS, key="prod_sort_col")
-        _sortdir = _sc[1].radio("Arah", ["Turun", "Naik"], horizontal=True, key="prod_sort_dir")
-        _base = st.session_state["produk_master"]
-        if _sortby != "(bawaan)" and _sortby in _base.columns:
-            _base = _base.sort_values(_sortby, ascending=(_sortdir == "Naik"),
-                                      na_position="last", kind="stable").reset_index(drop=True)
-        # bila urutan berubah, reset state editor agar sel selaras dgn urutan baru
-        _sortsig = f"{_sortby}|{_sortdir}"
-        if st.session_state.get("_prod_sort_sig") != _sortsig:
-            st.session_state["_prod_sort_sig"] = _sortsig
-            st.session_state.pop("editor_master", None)
-        _sc[2].caption("Sort mengurutkan tampilan tabel. Mengubah urutan me-reset sel yang sedang "
-                       "diedit (belum tersimpan) — sesuaikan setelah memilih urutan.")
-
         _money = lambda label: st.column_config.NumberColumn(label, min_value=0, format="localized")
         _int = lambda label, h: st.column_config.NumberColumn(label, min_value=0, step=1, help=h)
         _cm_help = ("Contribution Margin per order = Nilai Jual − HPP − Fee COD×(Nilai Jual+Ongkir) "
                     "+ Cashback×Ongkir − Opex variabel. Otomatis dari input.")
-        edited = st.data_editor(
-            _base, num_rows="dynamic", width='stretch',
-            height=320, key="editor_master",
-            column_config={
-                "Produk": st.column_config.TextColumn("Produk", width="medium"),
-                "Budget/Hari": _money("Budget/Hari (Rp)"),
-                "CPL": _money("CPL (Rp)"),
-                "Nilai Produk": st.column_config.NumberColumn(
-                    "Nilai Jual / AoV (Rp)", min_value=0, format="localized",
-                    help="Average Order Value = nilai jual total produk per order (product_price), "
-                         "sudah termasuk jumlah pcs dalam 1 resi."),
-                "HPP": st.column_config.NumberColumn(
-                    "HPP (Rp)", min_value=0, format="localized",
-                    help="Harga pokok per order = Pcs/Order × HPP per Pcs (dari Import-Stock)."),
-                "Stok (pcs)": _int("Stok (pcs)", "Sisa stok gudang. Order tercukupi stok tidak "
-                                                 "menimbulkan biaya beli produk."),
-                "Pcs/Order": _int("Pcs/Order", "Rata-rata pcs produk utama per order (untuk "
-                                               "menghitung berapa order yang bisa dipenuhi stok)."),
-                "CM": st.column_config.NumberColumn("CM (Rp/order)", disabled=True,
-                                                    format="localized", help=_cm_help),
-                "CM%": st.column_config.NumberColumn("CM %", disabled=True, format="%.1f%%",
-                    help="CM ÷ Nilai Jual × 100. Makin tinggi makin layak di-scale budget-nya."),
-                "Retur %": st.column_config.NumberColumn("Retur %", disabled=True, format="%.1f%%",
-                    help="% retur produk ini dari histori (order yang gagal diterima ÷ sampai+retur, "
-                         "via join No. Waybill). Retur tinggi → budget iklan di-scale lebih kecil."),
-            })
+        _colcfg = {
+            "Produk": st.column_config.TextColumn("Produk", width="medium"),
+            "Budget/Hari": _money("Budget/Hari (Rp)"),
+            "CPL": _money("CPL (Rp)"),
+            "Nilai Produk": st.column_config.NumberColumn(
+                "Nilai Jual / AoV (Rp)", min_value=0, format="localized",
+                help="Average Order Value = nilai jual total produk per order (product_price), "
+                     "sudah termasuk jumlah pcs dalam 1 resi."),
+            "HPP": st.column_config.NumberColumn(
+                "HPP (Rp)", min_value=0, format="localized",
+                help="Harga pokok per order = Pcs/Order × HPP per Pcs (dari Import-Stock)."),
+            "Stok (pcs)": _int("Stok (pcs)", "Sisa stok gudang. Order tercukupi stok tidak "
+                                             "menimbulkan biaya beli produk."),
+            "Pcs/Order": _int("Pcs/Order", "Rata-rata pcs produk utama per order (untuk "
+                                           "menghitung berapa order yang bisa dipenuhi stok)."),
+            "CM": st.column_config.NumberColumn("CM (Rp/order)", disabled=True,
+                                                format="localized", help=_cm_help),
+            "CM%": st.column_config.NumberColumn("CM %", disabled=True, format="%.1f%%",
+                help="CM ÷ Nilai Jual × 100. Makin tinggi makin layak di-scale budget-nya."),
+            "Retur %": st.column_config.NumberColumn("Retur %", disabled=True, format="%.1f%%",
+                help="% retur produk ini dari histori (order yang gagal diterima ÷ sampai+retur, "
+                     "via join No. Waybill). Retur tinggi → budget iklan di-scale lebih kecil."),
+        }
+        _mode = st.radio(
+            "Mode tabel produk",
+            ["✏️ Edit nilai", "🔃 Urutkan / lihat (klik header)"],
+            horizontal=True, key="prod_mode",
+            help="Edit: ubah sel. Urutkan: tabel read-only, klik nama kolom untuk sort "
+                 "naik/turun (fitur sort header hanya ada di mode ini).")
+        if _mode.startswith("✏️"):
+            edited = st.data_editor(
+                st.session_state["produk_master"], num_rows="dynamic", width='stretch',
+                height=320, key="editor_master", column_config=_colcfg)
+            st.session_state["produk_current"] = edited
+        else:
+            _view = st.session_state.get("produk_current", st.session_state["produk_master"])
+            st.dataframe(_view, width='stretch', height=320, hide_index=True,
+                         column_config=_colcfg)
+            st.caption("🔃 Klik nama kolom untuk urut naik/turun. Untuk mengubah nilai, "
+                       "kembali ke **✏️ Edit nilai**.")
+            edited = _view
         # Kolom CM/CM% (disabled) menyegar saat tekan "Re-plot optimal". Edit manual pada
         # Nilai/HPP tetap dipakai simulasi (via `edited`), CM tampil ter-update usai re-plot.
         st.session_state["produk_current"] = edited     # snapshot utk fitur Planning (aman, key beda)
