@@ -137,6 +137,90 @@ def _closing_per_sku(oo_df, ref_df, order_df):
     return gg.rename(columns={"_sku": "SKU"})[["SKU", "closing_rate"]]
 
 
+def _oo_resolver(oo, ref_df, order_df):
+    """Bangun kolom `_sku` untuk tiap baris OrderOnline via resolusi berlapis
+    (sama dgn _closing_per_sku). Mengembalikan Series SKU sejajar index oo."""
+    from collections import defaultdict
+    oo = oo.copy()
+    oo["_oid"] = oo.get("order_id", pd.Series("", index=oo.index)).astype(str).str.strip()
+    oo["_pc"] = oo.get("product_code", pd.Series("", index=oo.index)).astype(str).str.strip()
+    oo["_v"] = _norm_var(oo["variation"]) if "variation" in oo.columns else ""
+    oo["_pn"] = _norm_var(oo["product"]) if "product" in oo.columns else ""
+
+    oid2sku = {}
+    if order_df is not None and len(order_df):
+        io = order_df.copy(); io.columns = [str(c).strip() for c in io.columns]
+        if {"order_id", "SKU"}.issubset(io.columns):
+            io["_oid"] = io["order_id"].astype(str).str.strip()
+            io["_sku"] = io["SKU"].astype(str).str.strip()
+            io = io[io["_sku"].ne("") & io["_sku"].str.lower().ne("nan")]
+            oid2sku = io.groupby("_oid")["_sku"].first().to_dict()
+
+    pcvar2sku, pc2sku, pc_names, name2sku = {}, {}, defaultdict(list), []
+    if ref_df is not None and len(ref_df):
+        rf = ref_df.copy(); rf.columns = [str(c).strip() for c in rf.columns]
+        if {"product_code", "SKU"}.issubset(rf.columns):
+            rf["_pc"] = rf["product_code"].astype(str).str.strip()
+            rf["_sku"] = rf["SKU"].astype(str).str.strip()
+            rf["_v"] = _norm_var(rf["Variation"]) if "Variation" in rf.columns else ""
+            rf["_nm"] = _norm_var(rf["Nama Barang JNT"]) if "Nama Barang JNT" in rf.columns else ""
+            pcvar2sku = {(r["_pc"], r["_v"]): r["_sku"] for _, r in rf.iterrows()}
+            uni = rf.groupby("_pc")["_sku"].nunique()
+            pc2sku = {pc: rf.loc[rf["_pc"] == pc, "_sku"].iloc[0] for pc in uni[uni == 1].index}
+            seen = set()
+            for _, r in rf.iterrows():
+                if r["_nm"]:
+                    pc_names[r["_pc"]].append((r["_nm"], r["_sku"]))
+                    key = (r["_nm"], r["_sku"])
+                    if key not in seen:
+                        seen.add(key); name2sku.append(key)
+            name2sku.sort(key=lambda x: len(x[0]), reverse=True)
+
+    def _resolve(row):
+        s = oid2sku.get(row["_oid"])
+        if s:
+            return s
+        pn = row["_pn"]
+        best, blen = None, 0
+        for nm, sku in pc_names.get(row["_pc"], []):
+            if nm and nm in pn and len(nm) > blen:
+                best, blen = sku, len(nm)
+        if best:
+            return best
+        s = pcvar2sku.get((row["_pc"], row["_v"]))
+        if s:
+            return s
+        s = pc2sku.get(row["_pc"])
+        if s:
+            return s
+        for nm, sku in name2sku:
+            if nm and nm in pn:
+                return sku
+        return None
+    return oo.apply(_resolve, axis=1)
+
+
+def resolve_oo_products(oo_df, ref_df=None, order_df=None) -> pd.DataFrame:
+    """OrderOnline + kolom terstandar untuk analisis per rentang tanggal:
+      sku (resolusi berlapis), created (datetime), is_closing (paid & completed/
+      processing), price (product_price num). Baris tak ter-resolve: sku=NaN."""
+    if oo_df is None or len(oo_df) == 0:
+        return pd.DataFrame()
+    oo = oo_df.copy()
+    oo.columns = [str(c).strip() for c in oo.columns]
+    oo["sku"] = _oo_resolver(oo, ref_df, order_df)
+    # tanggal created_at: "dd-mm-yyyy - HH:MM" (fallback dayfirst)
+    cr = pd.to_datetime(oo.get("created_at"), format="%d-%m-%Y - %H:%M", errors="coerce")
+    if cr.isna().any():
+        cr = cr.fillna(pd.to_datetime(oo.get("created_at"), errors="coerce", dayfirst=True))
+    oo["created"] = cr
+    paid = oo.get("payment_status", "").astype(str).str.lower().eq("paid")
+    stat = oo.get("status", "").astype(str).str.lower().isin(["completed", "processing"])
+    oo["is_closing"] = (paid & stat)
+    oo["price"] = _num(oo.get("product_price")).fillna(0)
+    return oo
+
+
 def build_catalog(order_df: pd.DataFrame | None,
                   stock_df: pd.DataFrame | None,
                   all_resi: pd.DataFrame | None = None,
@@ -276,6 +360,8 @@ def optimize_table(catalog: pd.DataFrame, params: dict) -> pd.DataFrame:
     horizon = max(int(params.get("horizon", 30) or 30), 1)
     cmin, cmax = config.CPL_MIN, config.CPL_MAX
     frac = config.CPL_TARGET_FRAC
+    # Default CPL bisa di-override oleh cost/purchase REAL dari Meta-Ads (per SKU).
+    cpl_override = params.get("cpl_override") or {}
 
     b_min = config.BUDGET_MIN_PRODUK
     b_max = config.BUDGET_MAX_PRODUK
@@ -295,6 +381,10 @@ def optimize_table(catalog: pd.DataFrame, params: dict) -> pd.DataFrame:
         cm_gross = jual - hpp - fee * (jual + ongkir) + cb_pct * ongkir - ovar
         be_cpl = closing * success_p * cm_gross               # breakeven CPL
         cpl = int(min(cmax, max(cmin, round(be_cpl * frac / 100.0) * 100)))
+        # Override dgn cost/purchase REAL Meta-Ads bila tersedia utk SKU ini (apa adanya).
+        _ov = cpl_override.get(str(r.get("SKU", "")).strip())
+        if _ov and float(_ov) > 0:
+            cpl = int(round(float(_ov)))
         profitable = be_cpl > cmin and cm_gross > 0
         score = cm_gross * success_p                          # bobot alokasi budget
         stock_orders = (stok // pcs) if pcs > 0 else 0

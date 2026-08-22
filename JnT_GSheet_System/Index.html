@@ -44,6 +44,7 @@
     .msg.ok  { display:block; background:#e7f6ee; color:#0b6b3a; border:1px solid #b7e4c9; }
     .msg.err { display:block; background:#fdeaea; color:#9a1420; border:1px solid #f4c2c5; }
     .msg.info{ display:block; background:#eef2f7; color:#334; border:1px solid #d7dee7; }
+    .msg.warn{ display:block; background:#fff6e5; color:#8a5a00; border:1px solid #f3d999; }
     .spin { width:15px; height:15px; border:2.5px solid #fff; border-top-color:transparent;
             border-radius:50%; display:inline-block; vertical-align:-2px; margin-right:6px;
             animation:sp .7s linear infinite; }
@@ -60,8 +61,10 @@
     .tbl th,.tbl td { padding:7px 9px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }
     .tbl th:first-child,.tbl td:first-child { text-align:left; }
     .tbl th { color:var(--muted); font-weight:600; }
-    .tbl th.s { cursor:pointer; user-select:none; }
-    .tbl th.s:hover { color:var(--jt); }
+    .tbl thead th { cursor:pointer; user-select:none; }
+    .tbl thead th:hover { color:var(--jt); }
+    .tbl thead th.nosort { cursor:default; color:var(--muted); }
+    .tbl thead th .sarr { font-size:9px; margin-left:3px; color:var(--jt); }
     .tbl tbody tr:hover { background:#fafbfc; }
     .tbl tfoot td { font-weight:700; border-top:2px solid var(--line); }
     .scrollx { overflow-x:auto; }
@@ -126,6 +129,9 @@
     .link2{background:none;border:0;color:var(--jt);font-weight:600;cursor:pointer;font-size:12.5px;margin-left:auto;padding:0;}
     .tokedit{margin-top:8px;}
     .tokedit textarea{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;}
+    .cardhd{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
+    .akchklist label:hover{background:#f4f7fb;}
+    .akchklist label{border-radius:6px;padding:4px 6px;}
   </style>
 </head>
 <body>
@@ -147,6 +153,7 @@
 
     <div class="nav">
       <button id="navUp" class="active" onclick="tab('up')">Upload Data</button>
+      <button id="navMeta" onclick="tab('meta')">Meta Ads</button>
       <button id="navDash" onclick="tab('dash')">Dashboard</button>
       <button id="navCair" onclick="tab('cair')">Pencairan J&amp;T</button>
     </div>
@@ -246,6 +253,77 @@
         file yang diupload ulang memperbarui baris yang sama, bukan menduplikasi.</div>
     </div>
 
+    <!-- ================= META ADS ================= -->
+    <div id="vMeta" style="display:none;">
+      <div class="card">
+        <h2>Meta Ads — Report Iklan per Produk</h2>
+        <p class="d">Menarik data iklan dari <b>semua Ad Account</b> di Business Manager yang bisa diakses token,
+          lengkap dengan nama BM &amp; akun, campaign, spend, purchase, dsb. Nama produk diambil dari
+          <b>nama campaign</b> lalu dicocokkan ke <b>Nama Barang JNT</b> (acuan yang sama dengan dashboard).</p>
+
+        <!-- ===== Business Portfolio & Token ===== -->
+        <div class="cardhd">
+          <div><b style="font-size:14px;">Business Portfolio &amp; Token</b> — <span id="mTokStat" class="d">memeriksa…</span></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="go" style="margin:0;" onclick="mToggleAdd()">+ Business Porto</button>
+            <button class="ghost" onclick="mOpenAkun()">🔍 Cek Ad Account</button>
+          </div>
+        </div>
+        <p class="d" style="margin-top:6px;">Tiap <b>business portfolio</b> punya token (System User) sendiri.
+          Izin token: <code>ads_read</code> (+ <code>business_management</code> bila mau nama BM).</p>
+        <div id="mPortList"></div>
+
+        <!-- form tambah (disembunyikan; dibuka tombol "+ Business Porto") -->
+        <div class="tokrow" id="mAddForm" style="border-style:dashed;display:none;">
+          <div class="tokhd"><b>+ Tambah business portfolio</b></div>
+          <label class="fld" style="margin-top:6px;">Nama portfolio (mis. "Meika BM 1")</label>
+          <input class="sel" id="mNewLabel" placeholder="nama business portfolio">
+          <label class="fld" style="margin-top:8px;">Access token</label>
+          <textarea class="sel" id="mNewTok" rows="2" placeholder="EAAB… (access token)"></textarea>
+          <div style="display:flex;gap:8px;margin-top:6px;">
+            <button class="go" style="margin:0" onclick="mAddPort()">Simpan portfolio</button>
+            <button class="ghost" onclick="mToggleAdd()">Batal</button>
+          </div>
+        </div>
+        <div class="msg" id="msgMeta"></div>
+
+        <!-- ===== Tarik data (per business portfolio) ===== -->
+        <p class="d" style="margin-top:12px;">Atur rentang tanggal, lalu <b>Tarik Semua Porto</b> sekaligus,
+          atau centang portfolio tertentu di daftar atas dan <b>Tarik Porto Terpilih</b>.
+          Tiap penarikan mengambil <b>seluruh ad account</b> dari portfolio yang dipilih.</p>
+        <div class="oobar">
+          <div><label class="fld">Dari tanggal</label><input class="sel" type="date" id="mSince"></div>
+          <div><label class="fld">Sampai tanggal</label><input class="sel" type="date" id="mUntil"></div>
+          <div><label class="fld">&nbsp;</label>
+            <button class="go" style="margin:0;width:100%;" id="mBtnTarikSemua" onclick="mTarik(true)">⇩ Tarik Semua Porto</button></div>
+          <div><label class="fld">&nbsp;</label>
+            <button class="ghost" style="width:100%;" id="mBtnTarikPilih" onclick="mTarik(false)">Tarik Porto Terpilih</button></div>
+        </div>
+        <div class="msg" id="msgMeta2"></div>
+
+        <details id="mLogWrap" style="margin-top:12px;">
+          <summary>Riwayat penarikan (Log)</summary>
+          <button class="ghost" style="margin-top:8px;" onclick="mLoadLog()">↻ Muat ulang log</button>
+          <div class="scrollbox" style="margin-top:8px;"><table class="tbl" id="mLog"></table></div>
+        </details>
+      </div>
+
+      <!-- pelabelan -->
+      <div class="mt">Pelabelan Campaign → Produk</div>
+      <div class="card">
+        <p class="d" style="margin-top:0;">Campaign yang <b>belum dikunci</b> / perlu ditinjau. Pilih produk yang benar
+          lalu <b>Kunci</b> — sekali dikunci, sistem mengingatnya selamanya (baris Meta-Ads lama ikut diperbarui),
+          kecuali muncul campaign baru.</p>
+        <button class="ghost" id="mReviewBtn" onclick="mLoadReview()">↻ Muat ulang daftar</button>
+        <span id="mReviewStat" class="d" style="margin-left:8px;"></span>
+        <div class="scrollbox" style="margin-top:8px;"><table class="tbl" id="mReviewT"></table></div>
+        <div class="msg" id="msgLbl"></div>
+        <details style="margin-top:10px;"><summary>Label terkunci (bisa dibuka lagi)</summary>
+          <div class="scrollbox" style="margin-top:8px;"><table class="tbl" id="mLockedT"></table></div>
+        </details>
+      </div>
+    </div>
+
     <!-- ================= DASHBOARD ================= -->
     <div id="vDash" style="display:none;">
       <div id="dashProg" class="prog" style="display:none;">
@@ -302,6 +380,29 @@
         <div class="mt" style="font-size:13px;">Per Bulan</div>
         <div class="scrollbox"><table class="tbl" id="ooBulanT"></table></div>
         <div class="msg" id="msgOO"></div>
+      </div>
+
+      <div class="mt">Report Iklan per Produk (Meta Ads)</div>
+      <div class="card">
+        <p class="d" style="margin-top:0;">Belanja iklan & hasilnya per produk. Data ditarik di tab <b>Meta Ads</b>;
+          di sini tinggal dilihat &amp; difilter rentang tanggal.</p>
+        <div class="oobar">
+          <div><label class="fld">Dari</label><input class="sel" type="date" id="mrSince"></div>
+          <div><label class="fld">Sampai</label><input class="sel" type="date" id="mrUntil"></div>
+          <div><label class="fld">&nbsp;</label><button class="go" style="margin:0;width:100%;" onclick="mLoadReport();mLoadReportAkun();">Terapkan</button></div>
+          <div></div>
+        </div>
+        <div class="kpis" style="margin-top:14px;">
+          <div class="kpi"><span>Total spend iklan</span><b id="mTotSpend">…</b><i id="mTotSpendI"></i></div>
+          <div class="kpi good"><span>Total purchase (pixel)</span><b id="mTotPur">…</b><i id="mTotPurI"></i></div>
+          <div class="kpi"><span>Rata-rata cost / purchase</span><b id="mTotCpp">…</b></div>
+        </div>
+        <div class="mt" style="font-size:13px;">Per Produk</div>
+        <div class="scrollbox" style="margin-top:6px;"><table class="tbl" id="mProdT"></table></div>
+        <div class="mt" style="font-size:13px;">Per Ad Account
+          <span class="d" style="font-weight:400;">(campaign bisnis lain yang dikecualikan tidak dihitung)</span></div>
+        <div class="scrollbox" style="margin-top:6px;"><table class="tbl" id="mAkunT"></table></div>
+        <div class="msg" id="msgMr"></div>
       </div>
 
       <details id="kal">
@@ -366,6 +467,22 @@
     </div>
   </div>
 
+  <!-- ============ MODAL: Cek Ad Account (semua portfolio) ============ -->
+  <div class="ovl" id="ovAkun">
+    <div class="modalbox" style="max-width:820px;">
+      <div class="modalhd">
+        <div><b>Semua Ad Account</b><div class="d" id="akunSub" style="margin-top:2px;">memuat…</div></div>
+        <div style="display:flex;gap:8px;">
+          <button class="ghost" onclick="mOpenAkun()">↻ Segarkan</button>
+          <button class="ghost" onclick="mCloseAkun()">Tutup</button>
+        </div>
+      </div>
+      <div class="modalbd">
+        <div class="scrollbox" style="max-height:64vh;"><table class="tbl" id="mAkunModalT"></table></div>
+      </div>
+    </div>
+  </div>
+
 <script>
   // ================= DETEKSI DEPLOYMENT BARU =================
   // Halaman yang sedang dibuka tidak tahu kalau kodenya sudah diganti. Jadi versi
@@ -416,14 +533,62 @@
   function show(id,c,h){ var e=document.getElementById(id); e.className='msg '+c; e.innerHTML=h; }
   function hide(id){ document.getElementById(id).className='msg'; }
 
+  // ===== Sort tabel via klik header (berlaku untuk SEMUA tabel .tbl) =====
+  // Delegasi di document, jadi otomatis jalan untuk tabel yang dirender ulang.
+  // Angka format Indonesia (Rp, ribuan titik, desimal koma) & desimal titik
+  // ditangani; kolom kosong / bertanda .nosort dilewati.
+  function sortNum(s){
+    if(s==null) return null;
+    if(/\d{4}-\d{1,2}-\d{1,2}/.test(String(s))) return null;   // tanggal ISO -> urut sbg teks (kronologis)
+    var t=String(s).replace(/[^\d.,-]/g,'');
+    if(!/\d/.test(t)) return null;
+    var hasC=t.indexOf(',')>=0, hasD=t.indexOf('.')>=0;
+    if(hasC&&hasD){ t=t.replace(/\./g,'').replace(',','.'); }        // 1.234,5 -> 1234.5
+    else if(hasC){ t=t.replace(/,/g,'.'); }                          // 12,5 -> 12.5
+    else if(hasD){                                                   // titik: ribuan atau desimal?
+      var p=t.split('.');
+      var ribuan = p.length>2 || p.slice(1).every(function(x){return x.length===3;});
+      if(ribuan) t=t.replace(/\./g,'');                              // 1.234 / 1.234.567
+    }
+    var n=parseFloat(t); return isNaN(n)?null:n;
+  }
+  function sortTabel(e){
+    var th=e.target&&e.target.closest?e.target.closest('th'):null; if(!th) return;
+    var thead=th.parentNode; if(!thead||!thead.parentNode||thead.parentNode.tagName!=='THEAD') return;
+    var table=thead.parentNode.parentNode; if(!table||table.className.indexOf('tbl')<0) return;
+    if(th.classList.contains('nosort')) return;
+    var label=(th.textContent||'').replace(/[▲▼]/g,'').trim(); if(!label) return;   // kolom aksi kosong
+    var ths=[].slice.call(thead.children), col=ths.indexOf(th); if(col<0) return;
+    var tbody=table.tBodies[0]; if(!tbody) return;
+    var rows=[].slice.call(tbody.rows).filter(function(r){return r.cells.length>col;});
+    if(rows.length<2) return;
+    var dir = th.getAttribute('data-sdir')==='asc' ? 'desc' : 'asc';
+    ths.forEach(function(x){ x.removeAttribute('data-sdir'); var a=x.querySelector('.sarr'); if(a)a.remove(); });
+    th.setAttribute('data-sdir',dir);
+    var vals=rows.map(function(r){ return (r.cells[col].textContent||'').trim(); });
+    var numeric = vals.map(sortNum).filter(function(n){return n!==null;}).length >= Math.ceil(rows.length*0.6);
+    rows.sort(function(a,b){
+      var av=(a.cells[col].textContent||'').trim(), bv=(b.cells[col].textContent||'').trim(), cmp;
+      if(numeric){ var an=sortNum(av), bn=sortNum(bv); an=(an===null?-Infinity:an); bn=(bn===null?-Infinity:bn); cmp=an-bn; }
+      else cmp=av.localeCompare(bv,'id',{sensitivity:'base',numeric:true});
+      return dir==='asc'?cmp:-cmp;
+    });
+    rows.forEach(function(r){ tbody.appendChild(r); });
+    var arr=document.createElement('span'); arr.className='sarr'; arr.textContent=dir==='asc'?'▲':'▼'; th.appendChild(arr);
+  }
+  document.addEventListener('click', sortTabel);
+
   function tab(v){
     document.getElementById('vUp').style.display   = v==='up'?'block':'none';
+    document.getElementById('vMeta').style.display = v==='meta'?'block':'none';
     document.getElementById('vDash').style.display = v==='dash'?'block':'none';
     document.getElementById('vCair').style.display = v==='cair'?'block':'none';
     document.getElementById('navUp').classList.toggle('active', v==='up');
+    document.getElementById('navMeta').classList.toggle('active', v==='meta');
     document.getElementById('navDash').classList.toggle('active', v==='dash');
     document.getElementById('navCair').classList.toggle('active', v==='cair');
     if((v==='dash'||v==='cair') && !DASH_LOADED) loadDash();
+    if(v==='meta' && !META_LOADED) initMeta();
   }
 
   // ---------- status awal ----------
@@ -698,6 +863,15 @@
   function loadDash(){
     DASH={}; DASH_LOADED=true;
     hide('msgD'); hide('msgC');
+    // default rentang report iklan (30 hari) + muat report Meta Ads per produk
+    (function(){
+      var p=function(n){return (''+n).padStart(2,'0');};
+      var fmt=function(d){return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());};
+      var s=document.getElementById('mrSince'), u=document.getElementById('mrUntil');
+      if(s&&!s.value) s.value=fmt(new Date(Date.now()-30*864e5));
+      if(u&&!u.value) u.value=fmt(new Date());
+    })();
+    mLoadReport(); mLoadReportAkun();
     // pasang placeholder di tiap section
     document.getElementById('tBulan').innerHTML=ph(10);
     document.getElementById('tProv').innerHTML=ph(10);
@@ -991,6 +1165,317 @@
     }).withFailureHandler(function(e){
       el.innerHTML='<span style="color:#9a1420;">✕ '+esc(e&&e.message?e.message:'Gagal.')+'</span>';
     }).cekDuplikat();
+  }
+
+  // ================= META ADS =================
+  var META_LOADED=false, MPRODUK=[], MPRODUK_LOADING=false;
+  // Pastikan daftar produk (untuk dropdown pelabelan) sudah termuat SEBELUM
+  // merender daftar review — kalau tidak, dropdown "Produk benar" jadi kosong
+  // (bug: opsi sering tidak muncul karena balapan async).
+  function mEnsureProduk(cb){
+    if(MPRODUK && MPRODUK.length){ cb&&cb(); return; }
+    google.script.run.withSuccessHandler(function(list){
+      MPRODUK=list||[]; MPRODUK_LOADING=false; cb&&cb();
+    }).withFailureHandler(function(){ MPRODUK_LOADING=false; cb&&cb(); }).metaGetProdukList();
+    MPRODUK_LOADING=true;
+  }
+  function initMeta(){
+    META_LOADED=true;
+    // default rentang 30 hari utk tarik & report
+    var p=function(n){return (''+n).padStart(2,'0');};
+    var fmt=function(d){return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());};
+    var kini=new Date(), lalu=new Date(Date.now()-30*864e5);
+    ['mSince','mrSince'].forEach(function(id){var e=document.getElementById(id); if(e&&!e.value)e.value=fmt(lalu);});
+    ['mUntil','mrUntil'].forEach(function(id){var e=document.getElementById(id); if(e&&!e.value)e.value=fmt(kini);});
+    mMuatTok(); mLoadLog(); mLoadLocked();
+    mEnsureProduk(function(){ mLoadReview(); });   // produk dulu, baru review
+  }
+  function mMuatTok(){
+    google.script.run.withSuccessHandler(function(s){
+      document.getElementById('mTokStat').innerHTML = s.jumlah
+        ? ('<span class="tag ok">'+nf(s.jumlah)+' portfolio</span> · '+nf(s.totalBaris)+' baris di Meta-Ads · Graph '+esc(s.graphVersion))
+        : '<span class="tag no">belum ada portfolio</span>';
+      var el=document.getElementById('mPortList');
+      if(!s.portfolios.length){ el.innerHTML='<div class="d" style="margin:6px 0;">Belum ada. Tambahkan portfolio pertama lewat tombol <b>+ Business Porto</b>.</div>'; return; }
+      el.innerHTML=
+        '<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer;margin:4px 0;">'+
+          '<input type="checkbox" id="mChkAllPort" onchange="mPilihSemuaPort(this.checked)"> Pilih semua portfolio</label>'+
+        s.portfolios.map(function(p){
+        var umur = p.disimpan ? new Date(p.disimpan).toLocaleDateString('id-ID') : '';
+        return '<div class="tokrow"><div class="tokhd">'+
+          '<input type="checkbox" class="mpchk" value="'+esc(p.id)+'" onchange="mHitungPort()" style="margin-right:2px;">'+
+          '<b>'+esc(p.label)+'</b> '+
+          '<span class="tag ok">token '+esc(p.ekor)+'</span>'+(umur?' <span class="d">· '+esc(umur)+'</span>':'')+
+          '<button class="link2" onclick="mEditPort(\''+esc(p.id)+'\',\''+esc(p.label).replace(/'/g,"\\'")+'\')">Ganti token</button></div>'+
+          '<div class="tokedit" id="mEd_'+esc(p.id)+'" style="display:none;">'+
+            '<textarea class="sel" id="mEt_'+esc(p.id)+'" rows="2" placeholder="tempel token baru"></textarea>'+
+            '<div style="display:flex;gap:8px;margin-top:6px;">'+
+              '<button class="go" style="margin:0" onclick="mSavePort(\''+esc(p.id)+'\')">Simpan</button>'+
+              '<button class="ghost" onclick="mDelPort(\''+esc(p.id)+'\',\''+esc(p.label).replace(/'/g,"\\'")+'\')">Hapus portfolio</button>'+
+            '</div></div></div>';
+      }).join('')+'<div id="mPortSelStat" class="d" style="margin-top:4px;"></div>';
+    }).withFailureHandler(function(){document.getElementById('mTokStat').textContent='gagal';}).metaStatus();
+  }
+  function mPilihSemuaPort(on){
+    [].slice.call(document.querySelectorAll('.mpchk')).forEach(function(c){ c.checked=on; });
+    mHitungPort();
+  }
+  function mHitungPort(){
+    var all=document.querySelectorAll('.mpchk'), sel=document.querySelectorAll('.mpchk:checked');
+    var chk=document.getElementById('mChkAllPort'); if(chk) chk.checked = all.length>0 && sel.length===all.length;
+    var st=document.getElementById('mPortSelStat'); if(st) st.textContent = sel.length? (sel.length+' dari '+all.length+' portfolio dipilih') : '';
+  }
+  function mToggleAdd(){
+    var f=document.getElementById('mAddForm');
+    f.style.display = f.style.display==='none' ? 'block' : 'none';
+    if(f.style.display==='block'){ document.getElementById('mNewLabel').focus(); }
+  }
+  function mAddPort(){
+    hide('msgMeta');
+    google.script.run.withSuccessHandler(function(){
+      document.getElementById('mNewLabel').value=''; document.getElementById('mNewTok').value='';
+      document.getElementById('mAddForm').style.display='none';
+      mMuatTok(); show('msgMeta','ok','✔ Portfolio ditambahkan.');
+    }).withFailureHandler(function(e){ show('msgMeta','err','✕ '+(e&&e.message?e.message:'Gagal.')); })
+      .metaSimpanToken(document.getElementById('mNewLabel').value, document.getElementById('mNewTok').value, '');
+  }
+  var mPortLabels={};   // id -> label (untuk ganti token tanpa mengubah label)
+  function mEditPort(id,label){ mPortLabels[id]=label; var e=document.getElementById('mEd_'+id); e.style.display=e.style.display==='none'?'block':'none'; }
+  function mSavePort(id){
+    var tok=document.getElementById('mEt_'+id).value;
+    google.script.run.withSuccessHandler(function(){ mMuatTok(); show('msgMeta','ok','✔ Token diperbarui.'); })
+      .withFailureHandler(function(e){ show('msgMeta','err','✕ '+(e&&e.message?e.message:'Gagal.')); })
+      .metaSimpanToken(mPortLabels[id]||'Portfolio', tok, id);
+  }
+  function mDelPort(id,label){
+    if(!confirm('Hapus portfolio "'+label+'" beserta tokennya?')) return;
+    google.script.run.withSuccessHandler(function(){ mMuatTok(); }).metaHapusToken(id);
+  }
+  // ---- Daftar ad account (dipakai modal & pilihan tarik) ----
+  var MAKUN=null;
+  function mFetchAkun(force, cb){
+    if(MAKUN && !force){ cb(MAKUN); return; }
+    google.script.run.withSuccessHandler(function(list){ MAKUN=list||[]; cb(MAKUN); })
+      .withFailureHandler(function(e){ cb(null, e); }).metaListAkun();
+  }
+  function mOpenAkun(){
+    document.getElementById('ovAkun').classList.add('show');
+    document.getElementById('akunSub').textContent='memuat…';
+    document.getElementById('mAkunModalT').innerHTML=ph(4);
+    mFetchAkun(true, function(list, err){
+      var el=document.getElementById('mAkunModalT');
+      if(err||!list){ document.getElementById('akunSub').textContent='gagal';
+        el.innerHTML='<tbody><tr><td style="color:#9a1420;">✕ '+esc(err&&err.message?err.message:'Gagal memuat.')+'</td></tr></tbody>'; return; }
+      document.getElementById('akunSub').textContent=list.length+' ad account terdeteksi';
+      if(!list.length){ el.innerHTML='<tbody><tr><td class="d">Tidak ada ad account yang bisa diakses token.</td></tr></tbody>'; return; }
+      el.innerHTML='<thead><tr><th>Portfolio</th><th>Business Manager</th><th>Ad Account</th><th>ID</th></tr></thead><tbody>'+
+        list.map(function(a){return '<tr><td>'+esc(a.portfolio)+'</td><td>'+esc(a.biz)+'</td><td>'+esc(a.akun)+'</td><td class="d">'+esc(a.id)+'</td></tr>';}).join('')+
+        '</tbody>';
+    });
+  }
+  function mCloseAkun(){ document.getElementById('ovAkun').classList.remove('show'); }
+  function mTarik(semua){
+    var since=document.getElementById('mSince').value, until=document.getElementById('mUntil').value;
+    if(!since||!until){ show('msgMeta2','err','Isi rentang tanggal dulu.'); return; }
+    var ids=null;
+    if(!semua){
+      ids=[].slice.call(document.querySelectorAll('.mpchk:checked')).map(function(c){return c.value;});
+      if(!ids.length){ show('msgMeta2','err','Centang minimal satu business portfolio di daftar atas, atau pakai “Tarik Semua Porto”.'); return; }
+    }
+    var b1=document.getElementById('mBtnTarikSemua'), b2=document.getElementById('mBtnTarikPilih');
+    b1.disabled=true; b2.disabled=true;
+    show('msgMeta2','info','<span class="spin"></span>Menarik data '+(semua?'dari semua portfolio':'dari '+ids.length+' portfolio terpilih')+'… (bisa lama tergantung jumlah akun & hari)');
+    google.script.run.withSuccessHandler(function(r){
+      b1.disabled=false; b2.disabled=false;
+      var pesan='✔ '+esc(r.rentang)+' · '+nf(r.portfolioTotal)+' portfolio · '+nf(r.akunSukses)+'/'+nf(r.akunTotal)+' akun · '+
+        'baru '+nf(r.added)+' · update '+nf(r.updated)+' · total '+nf(r.total)+' baris · perlu review '+nf(r.review);
+      show('msgMeta2', r.akunGagal?'warn':'ok', pesan+
+        (r.gagal&&r.gagal.length?'<br><span style="color:#9a1420;">Gagal: '+esc(r.gagal.join(' | '))+'</span>':''));
+      mMuatTok(); mLoadLog(); mLoadReport(); mLoadReportAkun(); mLoadReview();
+    }).withFailureHandler(function(e){ b1.disabled=false; b2.disabled=false; show('msgMeta2','err','✕ '+(e&&e.message?e.message:'Gagal menarik.')); })
+      .metaTarik(since, until, ids);
+  }
+  function mLoadLog(){
+    var el=document.getElementById('mLog'); el.innerHTML=ph(6);
+    google.script.run.withSuccessHandler(function(list){
+      if(!list||!list.length){ el.innerHTML='<tbody><tr><td style="color:var(--muted)">Belum ada riwayat penarikan.</td></tr></tbody>'; return; }
+      var cols=[['Waktu','Waktu'],['Rentang','Rentang data'],['Portfolio','Portfolio'],['Akun Ditarik','Ad Account'],
+                ['Jumlah Akun','# Akun'],['Baris Baru','Baru'],['Baris Update','Update'],['Total Baris','Total'],
+                ['Perlu Review','Review'],['Oleh','Oleh'],['Catatan','Catatan']];
+      el.innerHTML='<thead><tr>'+cols.map(function(c){return '<th>'+esc(c[1])+'</th>';}).join('')+'</tr></thead><tbody>'+
+        list.map(function(r){return '<tr>'+cols.map(function(c){
+          var v=r[c[0]]==null?'':r[c[0]];
+          return '<td'+(['# Akun','Baru','Update','Total','Review'].indexOf(c[1])>=0?' class="r"':'')+'>'+esc(v)+'</td>';
+        }).join('')+'</tr>';}).join('')+'</tbody>';
+    }).withFailureHandler(function(e){ el.innerHTML='<tbody><tr><td style="color:#9a1420;">✕ Gagal memuat log: '+esc(e&&e.message?e.message:'error')+'</td></tr></tbody>'; }).metaGetLog();
+  }
+  function mLoadReport(){
+    var s=document.getElementById('mrSince').value, u=document.getElementById('mrUntil').value;
+    document.getElementById('mProdT').innerHTML=ph(6);
+    google.script.run.withSuccessHandler(function(d){
+      if(!d.ada){ document.getElementById('mProdT').innerHTML='<tbody><tr><td style="color:var(--muted)">Belum ada data Meta-Ads. Tarik dulu.</td></tr></tbody>';
+        ['mTotSpend','mTotPur','mTotCpp'].forEach(function(id){document.getElementById(id).textContent='—';}); return; }
+      document.getElementById('mTotSpend').textContent=rp(d.total.spend);
+      document.getElementById('mTotSpendI').textContent=(d.periode.since||'…')+' → '+(d.periode.until||'…');
+      document.getElementById('mTotPur').textContent=nf(d.total.purchases);
+      document.getElementById('mTotPurI').textContent=nf(d.total.clicks)+' klik · '+nf(d.total.impressions)+' impresi';
+      document.getElementById('mTotCpp').textContent=d.total.purchases>0?rp(Math.round(d.total.spend/d.total.purchases)):'—';
+      document.getElementById('mProdT').innerHTML=
+        '<thead><tr><th>Produk</th><th class="r">Spend</th><th class="r">Daily Budget</th><th class="r">Purchase</th><th class="r">Cost/Purchase</th>'+
+        '<th class="r">CPC</th><th class="r">CPM</th><th class="r">Link Click</th><th class="r">LPV</th>'+
+        '<th class="r">ATC</th><th class="r">Klik</th><th class="r">CTR</th></tr></thead><tbody>'+
+        d.produk.map(function(p){
+          return '<tr><td><b>'+esc(p.produk)+'</b>'+(p.sku?' <span class="d">['+esc(p.sku)+']</span>':'')+'</td>'+
+            '<td class="r">'+rp(p.spend)+'</td>'+
+            '<td class="r">'+(p.daily_budget>0?rp(p.daily_budget):'—')+'</td>'+
+            '<td class="r">'+nf(p.purchases)+'</td>'+
+            '<td class="r">'+(p.cpp===''?'—':rp(p.cpp))+'</td>'+
+            '<td class="r">'+(p.cpc===''?'—':rp(p.cpc))+'</td>'+
+            '<td class="r">'+(p.cpm===''?'—':rp(p.cpm))+'</td>'+
+            '<td class="r">'+nf(p.link_click)+'</td><td class="r">'+nf(p.lpv)+'</td>'+
+            '<td class="r">'+nf(p.atc)+'</td>'+
+            '<td class="r">'+nf(p.clicks)+'</td><td class="r">'+p.ctr+'%</td></tr>';
+        }).join('')+'</tbody>';
+      if(d.campaignBelumJelas>0){
+        show('msgMr','warn','⚠ '+nf(d.campaignBelumJelas)+' campaign ('+rp(d.spendBelumJelas)+' spend) belum masuk dashboard karena produknya belum jelas. Labeli di tab <b>Meta Ads → Pelabelan</b> agar ikut dihitung.');
+      } else { show('msgMr','',''); }
+    }).withFailureHandler(function(e){ show('msgMr','err','✕ '+(e&&e.message?e.message:'Gagal.')); }).metaReportProduk(s,u);
+  }
+  function mLoadReportAkun(){
+    var s=document.getElementById('mrSince').value, u=document.getElementById('mrUntil').value;
+    document.getElementById('mAkunT').innerHTML=ph(6);
+    google.script.run.withSuccessHandler(function(d){
+      if(!d.ada||!d.akun.length){ document.getElementById('mAkunT').innerHTML='<tbody><tr><td style="color:var(--muted)">Belum ada data.</td></tr></tbody>'; return; }
+      document.getElementById('mAkunT').innerHTML=
+        '<thead><tr><th>Ad Account</th><th>Portfolio</th><th class="r">Campaign</th><th class="r">Spend</th>'+
+        '<th class="r">Purchase</th><th class="r">Cost/Purchase</th><th class="r">Klik</th><th class="r">CTR</th></tr></thead><tbody>'+
+        d.akun.map(function(a){
+          return '<tr><td><b>'+esc(a.ad_account_name||a.ad_account_id)+'</b>'+
+            (a.business_name?' <span class="d">'+esc(a.business_name)+'</span>':'')+'</td>'+
+            '<td>'+esc(a.portfolio||'-')+'</td><td class="r">'+nf(a.campaign_count)+'</td>'+
+            '<td class="r">'+rp(a.spend)+'</td><td class="r">'+nf(a.purchases)+'</td>'+
+            '<td class="r">'+(a.cpp===''?'—':rp(a.cpp))+'</td>'+
+            '<td class="r">'+nf(a.clicks)+'</td><td class="r">'+a.ctr+'%</td></tr>';
+        }).join('')+'</tbody>';
+    }).withFailureHandler(function(e){ show('msgMr','err','✕ '+(e&&e.message?e.message:'Gagal.')); }).metaReportAkun(s,u);
+  }
+  function mProdukOptions(sel){
+    return '<option value="">— pilih produk —</option>'+MPRODUK.map(function(p){
+      return '<option value="'+esc(p.sku)+'"'+(sel===p.sku?' selected':'')+'>'+esc(p.nama)+' ['+esc(p.sku)+']</option>';}).join('');
+  }
+  // ===== Pelabelan dengan antrean optimistis =====
+  // User bisa aksi banyak baris sekaligus. Tiap aksi: baris LANGSUNG hilang dari
+  // daftar (tanpa refresh keseluruhan), lalu dikirim ke backend satu per satu
+  // (antre di klien + LockService di server). Kalau gagal, baris otomatis muncul
+  // lagi di daftar. Report/locked baru disegarkan setelah antrean habis.
+  var MQ=[], MQ_BUSY=false, MQ_DIRTY=false;
+  var MREV_STAT={saved:0, failed:0};
+  function mReviewStatus(){
+    var stat=document.getElementById('mReviewStat'); if(!stat) return;
+    var body=document.getElementById('mReviewBody');
+    var sisaList=body?body.querySelectorAll('tr').length:0;
+    var proses=MQ.length+(MQ_BUSY?1:0);
+    var parts=[];
+    if(proses) parts.push('⏳ '+proses+' diproses');
+    if(MREV_STAT.saved) parts.push('✔ '+MREV_STAT.saved+' tersimpan');
+    if(MREV_STAT.failed) parts.push('✕ '+MREV_STAT.failed+' gagal (dikembalikan)');
+    parts.push(sisaList+' di daftar');
+    stat.style.color = MREV_STAT.failed ? 'var(--bad)' : 'var(--muted)';
+    stat.innerHTML=parts.join(' · ');
+  }
+  function mQueuePump(){
+    if(MQ_BUSY) return;
+    if(!MQ.length){                              // antrean habis -> segarkan sekali
+      if(MQ_DIRTY){ MQ_DIRTY=false; mLoadLocked(); mLoadReport(); mLoadReportAkun(); }
+      mReviewStatus(); return;
+    }
+    MQ_BUSY=true; var t=MQ.shift(); mReviewStatus();
+    var done=function(){ MQ_BUSY=false; MQ_DIRTY=true; MREV_STAT.saved++; mReviewStatus(); mQueuePump(); };
+    var fail=function(e){
+      MQ_BUSY=false; MREV_STAT.failed++;
+      // auto-muncul lagi: sisipkan kembali node baris ke daftar
+      var parent=document.getElementById('mReviewBody');
+      if(parent){
+        try{ parent.insertBefore(t.node, (t.before&&t.before.parentNode===parent)?t.before:null); }
+        catch(_){ parent.appendChild(t.node); }
+        var eb=t.node.querySelector('button.go'), xb=t.node.querySelector('button.ghost');
+        if(eb){eb.disabled=false;eb.textContent='Kunci';} if(xb){xb.disabled=false;xb.textContent='Kecualikan';}
+        t.node.style.background='#fdeaea';
+        setTimeout(function(){ t.node.style.transition='background .8s'; t.node.style.background=''; },1800);
+      }
+      show('msgLbl','err','✕ Gagal memproses satu campaign: '+esc(e&&e.message?e.message:'error')+' — baris dikembalikan ke daftar, coba lagi.');
+      mReviewStatus(); mQueuePump();
+    };
+    if(t.tipe==='kunci') google.script.run.withSuccessHandler(done).withFailureHandler(fail).metaSimpanLabel(t.key,t.sku);
+    else google.script.run.withSuccessHandler(done).withFailureHandler(fail).metaKecualikanCampaign(t.key);
+  }
+  function mAksiLabel(keyEnc,i,tipe){
+    var key=decodeURIComponent(keyEnc);
+    var row=document.getElementById('mrevrow_'+i);
+    if(!row || row.dataset.sent==='1') return;   // cegah dobel submit baris sama
+    var sku=null;
+    if(tipe==='kunci'){
+      var selEl=document.getElementById('mrev_'+i);
+      sku=selEl?selEl.value:'';
+      if(!sku){ show('msgLbl','err','Pilih produk dulu untuk baris ini.'); return; }
+    }
+    row.dataset.sent='1';
+    var parent=row.parentNode, before=row.nextSibling;
+    parent.removeChild(row);                      // optimistic: langsung hilang
+    MQ.push({key:key, sku:sku, tipe:tipe, node:row, before:before});
+    mReviewStatus();
+    mQueuePump();
+  }
+  function mLoadReview(){
+    var el=document.getElementById('mReviewT');
+    var btn=document.getElementById('mReviewBtn'), stat=document.getElementById('mReviewStat');
+    el.innerHTML=ph(5);
+    if(btn) btn.disabled=true;
+    if(stat){ stat.style.color='var(--muted)'; stat.textContent='⏳ Memuat daftar…'; }
+    MREV_STAT={saved:0, failed:0};
+    mEnsureProduk(function(){ mLoadReviewInti(el,btn,stat); });
+  }
+  function mLoadReviewInti(el,btn,stat){
+    google.script.run.withSuccessHandler(function(list){
+      if(btn) btn.disabled=false;
+      if(!list||!list.length){
+        el.innerHTML='<tbody id="mReviewBody"><tr><td style="color:var(--muted)">Tidak ada campaign yang perlu ditinjau. 🎉</td></tr></tbody>';
+        if(stat) stat.textContent='semua sudah terlabeli ✓'; return;
+      }
+      el.innerHTML='<thead><tr><th>Campaign</th><th>Tebakan sistem</th><th>Skor</th><th class="nosort">Produk benar</th><th class="nosort"></th><th class="nosort"></th></tr></thead><tbody id="mReviewBody">'+
+        list.map(function(r,i){
+          return '<tr id="mrevrow_'+i+'"><td>'+esc(r.campaign_name||r.key)+'</td>'+
+            '<td>'+esc(r.nama||'-')+(r.sku?' ['+esc(r.sku)+']':'')+'</td>'+
+            '<td>'+(Math.round((r.confidence||0)*100))+'%</td>'+
+            '<td><select class="sel" id="mrev_'+i+'">'+mProdukOptions(r.sku)+'</select></td>'+
+            '<td><button class="go" style="margin:0;padding:6px 12px;" onclick="mAksiLabel(\''+encodeURIComponent(r.key)+'\','+i+',\'kunci\')">Kunci</button></td>'+
+            '<td><button class="ghost" title="Campaign ini milik bisnis lain — jangan ikutkan ke data bisnis ini" style="padding:6px 12px;" onclick="mAksiLabel(\''+encodeURIComponent(r.key)+'\','+i+',\'exclude\')">Kecualikan</button></td></tr>';
+        }).join('')+'</tbody>';
+      mReviewStatus();
+    }).withFailureHandler(function(e){
+      if(btn) btn.disabled=false;
+      if(stat){ stat.style.color='var(--bad)'; stat.textContent='✕ gagal memuat'; }
+      el.innerHTML='<tbody id="mReviewBody"><tr><td style="color:var(--bad)">✕ Gagal memuat: '+esc(e&&e.message?e.message:'error')+'</td></tr></tbody>';
+    }).metaGetReview();
+  }
+  function mLoadLocked(){
+    var el=document.getElementById('mLockedT');
+    el.innerHTML=ph(3);
+    google.script.run.withSuccessHandler(function(list){
+      if(!list||!list.length){ el.innerHTML='<tbody><tr><td style="color:var(--muted)">Belum ada label terkunci.</td></tr></tbody>'; return; }
+      el.innerHTML='<thead><tr><th>Campaign</th><th>Produk / Status</th><th></th></tr></thead><tbody>'+
+        list.map(function(r){
+          var isi = r.excluded
+            ? '<span style="color:#e0a030;">⊘ Dikecualikan (bisnis lain)</span>'
+            : esc(r.nama||'-')+(r.sku?' ['+esc(r.sku)+']':'');
+          var btn = r.excluded ? 'Batalkan pengecualian' : 'Buka kunci';
+          return '<tr><td>'+esc(r.campaign_name||r.key)+'</td><td>'+isi+'</td>'+
+            '<td><button class="ghost" style="padding:5px 10px;" onclick="mBukaLabel(\''+encodeURIComponent(r.key)+'\')">'+btn+'</button></td></tr>';
+        }).join('')+'</tbody>';
+    }).withFailureHandler(function(){}).metaGetLocked();
+  }
+  function mBukaLabel(keyEnc){
+    google.script.run.withSuccessHandler(function(){ mLoadLocked(); mLoadReview(); mLoadReport(); mLoadReportAkun(); }).metaHapusLabel(decodeURIComponent(keyEnc));
   }
 
   function drawCair(d){

@@ -131,6 +131,7 @@ def load_from_gsheet_oauth() -> dict:
         "stock": _grab(getattr(config, "GSHEET_TAB_STOCK", [])),
         "oo": _grab(getattr(config, "GSHEET_TAB_OO", [])),
         "ref": _grab(getattr(config, "GSHEET_TAB_REF", [])),
+        "meta": _grab(getattr(config, "GSHEET_TAB_META", [])),
         "path": "Google Sheet (live, OAuth)",
         "mtime": time.time(),
         "sheets": [w.title for w in sh.worksheets()],
@@ -208,6 +209,7 @@ def load_workbook(path: str | None = None) -> dict:
     stock = _read_sheet(xl, "Import-Stock", "STOK", "Stok", "Stock")
     oo = _read_sheet(xl, "OrderOnline", "Order Online", "OO")
     ref = _read_sheet(xl, "Impor-RefProduk", "Import-RefProduk", "RefProduk")
+    meta = _read_sheet(xl, "Meta-Ads", "Meta Ads", "MetaAds")
 
     return {
         "all_resi": all_resi,
@@ -217,6 +219,7 @@ def load_workbook(path: str | None = None) -> dict:
         "stock": stock,
         "oo": oo,
         "ref": ref,
+        "meta": meta,
         "path": path,
         "mtime": os.path.getmtime(path),
         "sheets": xl.sheet_names,

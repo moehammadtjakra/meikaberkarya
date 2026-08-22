@@ -151,6 +151,27 @@ def _std_provinsi(v):
     return _PROV_ALIAS.get(key, v.strip())
 
 
+def clean_meta(df_raw: pd.DataFrame | None) -> pd.DataFrame | None:
+    """Standarkan sheet Meta-Ads (Modul 5): numerik + tanggal + teks."""
+    if df_raw is None or len(df_raw) == 0:
+        return df_raw
+    df = df_raw.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    num_cols = ["match_confidence", "spend", "impressions", "clicks", "link_click",
+                "cpc", "cpm", "add_to_cart", "landing_page_view", "purchases",
+                "cost_per_purchase", "daily_budget", "budget_remaining"]
+    for c in num_cols:
+        if c in df:
+            df[c] = _to_numeric(df[c])
+    for c in ["produk", "sku", "campaign_name", "business_name", "ad_account_name",
+              "match_status", "budget_type", "status"]:
+        if c in df:
+            df[c] = _norm_text(df[c])
+    if "date" in df:
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    return df
+
+
 def clean_all(raw: dict) -> dict:
     """Bersihkan seluruh workbook sekaligus."""
     return {
@@ -161,6 +182,7 @@ def clean_all(raw: dict) -> dict:
         "stock": raw.get("stock"),      # sheet Import-Stock (admin) — mentah
         "oo": raw.get("oo"),            # sheet OrderOnline (leads) — mentah
         "ref": raw.get("ref"),          # sheet Impor-RefProduk (mapping) — mentah
+        "meta": clean_meta(raw.get("meta")),   # sheet Meta-Ads (iklan) — Modul 5
         "path": raw.get("path"),
         "mtime": raw.get("mtime"),
     }

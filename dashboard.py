@@ -25,6 +25,7 @@ import cashflow_engine as ce
 import geography_engine as geo
 import product_engine as prodeng
 import product_admin as padmin
+import meta_engine as meng
 import planning
 import target_engine as te
 import daily_engine as de
@@ -72,6 +73,9 @@ html {{ scroll-behavior:smooth; }}
             border-left-color:{T['green']}; }}
 .section-banner.purple {{ background:linear-gradient(90deg,{T['purple']}22,{T['card']});
             border-left-color:{T['purple']}; }}
+.section-banner.teal {{ background:linear-gradient(90deg,{T['teal']}22,{T['card']});
+            border-left-color:{T['teal']}; }}
+.kpi.red {{ border-left-color:{T['red']}; }}
 .navbar {{ display:flex; gap:8px; flex-wrap:wrap; margin:2px 0 10px 0; }}
 .navbar a {{ background:{T['card']}; border:1px solid {T['grid']}; color:{T['text']};
             padding:6px 14px; border-radius:20px; font-size:.82rem; font-weight:600;
@@ -207,10 +211,11 @@ if _hc[2].button("🔄 Muat ulang", width='stretch'):
     st.cache_data.clear()
     st.rerun()
 
-tab1, tab4, tab2, tab3 = st.tabs(["💰 Modul 1 — Simulator Cashflow & Pencairan",
-                                  "🎯 Modul 2 — Target Profit Simulator",
-                                  "🗺️ Modul 3 — Analisis Wilayah",
-                                  "📦 Modul 4 — Analisis Produk"])
+tab1, tab4, tab2, tab3, tab5 = st.tabs(["💰 Modul 1 — Simulator Cashflow & Pencairan",
+                                        "🎯 Modul 2 — Target Profit Simulator",
+                                        "🗺️ Modul 3 — Analisis Wilayah",
+                                        "📦 Modul 4 — Analisis Produk",
+                                        "📣 Modul 5 — Analisis Iklan Meta"])
 
 # ---- katalog produk dari sheet admin (Order + Stock + retur + OrderOnline closing) ----
 try:
@@ -228,6 +233,15 @@ try:
     _OO_CLOSING = padmin.global_closing_rate(data.get("oo"))
 except Exception:
     _OO_CLOSING = None
+_META = data.get("meta")     # sheet Meta-Ads (Modul 5); None bila belum ada
+try:                          # OrderOnline ter-resolusi ke SKU + created_at + closing
+    _OO_RESOLVED = padmin.resolve_oo_products(data.get("oo"), data.get("ref"), data.get("order"))
+except Exception:
+    _OO_RESOLVED = pd.DataFrame()
+try:                          # cost/purchase per SKU dari Meta (default CPL Modul 1)
+    _META_CPP = meng.cost_per_purchase_by_sku(_META) if _META is not None else {}
+except Exception:
+    _META_CPP = {}
 # Kolom input (editable) + kolom turunan (disabled)
 _INCOLS = ["Produk", "Budget/Hari", "CPL", "Nilai Produk", "HPP", "Stok (pcs)", "Pcs/Order"]
 _DERIVED = ["Total Resi", "Closing Rate", "Pcs Terjual", "CM", "CM%", "Retur %"]
@@ -249,7 +263,8 @@ def seed_master(params: dict | None = None):
             ongkir=baseline.get("avg_total_biaya", config.DEFAULTS["ongkir_per_resi"]),
             cashback_pct=baseline.get("cashback_pct", config.DEFAULTS["cashback_pct"]),
             cod_fee_rate=baseline.get("cod_fee_rate", config.DEFAULTS["cod_fee_rate"]),
-            opex_var_resi=0, horizon=config.DEFAULTS["horizon_days"])
+            opex_var_resi=0, horizon=config.DEFAULTS["horizon_days"],
+            cpl_override=_META_CPP)     # default CPL = cost/purchase real Meta-Ads per SKU
         return padmin.optimize_table(_catalog, pr)[_PCOLS].copy()
     t = prodeng.seed_product_table(
         df_all, top_n=25, total_budget_harian=config.DEFAULTS["budget_harian"],
@@ -1401,6 +1416,134 @@ with tab4:
         f"dari {num(st_['n_resi'])} dikirim")
     kpi(d3[3], "Budget Iklan", rp(st_["budget_iklan"]), f"{rp(st_['budget_harian'])}/hari")
     st.plotly_chart(viz.fig_cash_journey(simt["timeline"], st_), width='stretch')
+
+# =================================================================== MODUL 5
+with tab5:
+    section("📣 Analisis Iklan Meta — Performa Campaign per Produk",
+            "Real per rentang tanggal: biaya iklan (Meta-Ads) vs leads, closing & omzet "
+            "(OrderOnline). Sistem menandai produk mana untuk di-scale atau dimatikan.",
+            cls="teal")
+
+    if _META is None or len(_META) == 0:
+        st.info("Belum ada data iklan. Pasang **MetaAds.gs** di Apps Script (lihat "
+                "`JnT_GSheet_System/PANDUAN_META_ADS.md`), tarik data, lalu muat ulang. "
+                "Sheet `Meta-Ads` akan otomatis terbaca di sini.")
+    else:
+        import datetime as _dt
+        _dmin, _dmax = meng.date_bounds(_META)
+        _dmax = _dmax or _dt.date.today()
+        _dmin = _dmin or (_dmax - _dt.timedelta(days=30))
+        fc = st.columns([1, 1, 2])
+        m_since = fc[0].date_input("Dari (tgl iklan / order)", value=max(_dmin, _dmax - _dt.timedelta(days=30)),
+                                   min_value=_dmin, max_value=_dmax, key="m_since")
+        m_until = fc[1].date_input("Sampai", value=_dmax, min_value=_dmin, max_value=_dmax, key="m_until")
+        _mp = dict(ongkir=ongkir, cashback_pct=cashback_pct / 100,
+                   cod_fee_rate=cod_fee_pct / 100, opex_var_resi=opex_var_resi,
+                   success_default=success)
+        R = meng.campaign_perf(_META, _OO_RESOLVED, _catalog, _mp, m_since, m_until)
+
+        if not R["ada"] or R["produk"].empty:
+            st.warning("Tidak ada iklan produk yang terpetakan pada rentang ini.")
+        else:
+            g = R["produk"]; tot = R["total"]
+            fc[2].markdown(
+                f"<div class='insight'>Rentang <b>{m_since:%d %b}</b>–<b>{m_until:%d %b %Y}</b>: "
+                f"spend <b>{rp(tot['spend'])}</b> → <b>{num(tot['leads'])}</b> leads, "
+                f"<b>{num(tot['closing'])}</b> closing, omzet <b>{rp(tot['omzet'])}</b> "
+                f"(ROAS <b>{tot['roas']:.2f}×</b>). Est. laba <b>{rp(tot['profit'])}</b>.</div>",
+                unsafe_allow_html=True)
+
+            n_scale = int(g["verdict"].str.contains("Scale").sum())
+            n_opt = int(g["verdict"].str.contains("Optimize").sum())
+            n_kill = int(g["verdict"].str.contains("Kill").sum())
+            k = st.columns(5)
+            kpi(k[0], "Total Spend", rp(tot["spend"]), f"{tot['n_produk']} produk", cls="amber",
+                help="Belanja iklan produk terpetakan pada rentang ini.")
+            kpi(k[1], "Leads → Closing", f"{num(tot['leads'])} → {num(tot['closing'])}",
+                f"closing rate {fmt.persen(tot['closing']/tot['leads']*100,0) if tot['leads'] else '–'}",
+                help="Leads & closing OrderOnline (paid & completed/processing) di rentang created_at.")
+            kpi(k[2], "Omzet & ROAS", rp(tot["omzet"]),
+                f"ROAS {tot['roas']:.2f}×" if pd.notna(tot["roas"]) else "ROAS –",
+                cls="green" if (tot.get("roas") or 0) >= 1 else "amber",
+                help="Omzet = Σ product_price order closing. ROAS = omzet ÷ spend.")
+            kpi(k[3], "Est. Laba", rp(tot["profit"]),
+                "closing × margin − spend", cls="green" if tot["profit"] >= 0 else "red",
+                help="Laba estimasi: closing × margin kotor/order (dari katalog) − spend iklan.")
+            kpi(k[4], "🟢/🟡/🔴", f"{n_scale} / {n_opt} / {n_kill}", "Scale / Opt / Kill",
+                cls="green" if n_scale >= n_kill else "amber")
+
+            _w = []
+            if R["unmatched_spend"] > 0:
+                _w.append(f"**{rp(R['unmatched_spend'])}** spend pada campaign **belum terpetakan** "
+                          "ke produk (mis. campaign TOF/prospek/event). Labeli di `Ref_Ads_Map` "
+                          "(`locked=TRUE`) bila ingin dihitung per produk.")
+            if R["excluded_spend"] > 0:
+                _w.append(f"**{rp(R['excluded_spend'])}** spend pada campaign **DIKECUALIKAN** (sengaja).")
+            if _w:
+                st.caption("⚠️ " + "  •  ".join(_w))
+
+            # ---- tabel performa per produk ----
+            st.markdown("##### 🧭 Performa & Keputusan per Produk")
+            st.caption("Impas = margin kotor/order (dari katalog). 🟢 Scale jika Cost/Closing ≤ 70% "
+                       "impas • 🟡 Optimize ≤ 100% • 🔴 Kill di atasnya / tanpa closing. "
+                       "Tanpa data katalog → pakai ROAS. Geser tabel untuk kolom lengkap.")
+            _rp = lambda v: rp(v) if pd.notna(v) else "–"
+            show = pd.DataFrame({
+                "Produk": g["produk"], "Verdict": g["verdict"],
+                "Spend": g["spend"].map(rp),
+                "Budget/Hari": g["daily_budget"].map(rp),
+                "CPM": g["cpm"].map(_rp), "CTR": g["ctr"].map(lambda v: f"{v:.2f}%" if pd.notna(v) else "–"),
+                "CPC": g["cpc"].map(_rp),
+                "Klik": g["clicks"].map(num), "Link Klik": g["link_click"].map(num),
+                "LPV": g["landing_page_view"].map(num),
+                "Purchase": g["purchases"].map(num), "Cost/Purchase": g["cost_per_purchase"].map(_rp),
+                "Leads": g["leads"].map(num), "Closing": g["closing"].map(num),
+                "Omzet": g["omzet"].map(rp),
+                "Cost/Closing": g["cost_per_closing"].map(_rp),
+                "Impas/Closing": g["breakeven_cpa"].map(_rp),
+                "ROAS": g["roas"].map(lambda v: f"{v:.2f}×" if pd.notna(v) else "–"),
+                "Laba": g["profit"].map(_rp),
+                "Aksi": g["aksi"],
+            })
+            st.dataframe(show, width='stretch', height=460, hide_index=True, column_config={
+                "Produk": st.column_config.TextColumn(width="medium"),
+                "Aksi": st.column_config.TextColumn(width="large"),
+            })
+
+            # ---- insight ringkas ----
+            tips = []
+            _sc = g[g["verdict"].str.contains("Scale")].sort_values("profit", ascending=False)
+            if not _sc.empty:
+                w = _sc.iloc[0]
+                tips.append(f"🟢 **Scale: {w['produk']}** — {w['aksi']}")
+            _kl = g[g["verdict"].str.contains("Kill") & g["profit"].notna()].sort_values("profit")
+            if not _kl.empty:
+                l = _kl.iloc[0]
+                tips.append(f"🔴 **Kill: {l['produk']}** — {l['aksi']}")
+            _spend_kill = g[g["verdict"].str.contains("Kill")]["spend"].sum()
+            if _spend_kill > 0:
+                tips.append(f"💸 Total **{rp(_spend_kill)}** spend berada di produk berstatus Kill — "
+                            "realokasi ke produk Scale/Optimize.")
+            for t in tips:
+                st.markdown(f'<div class="insight">• {t}</div>', unsafe_allow_html=True)
+
+            # ---- drilldown per campaign ----
+            st.markdown("##### 🔍 Rincian per Campaign")
+            psel5 = st.selectbox("Pilih produk", g["produk"].tolist(), key="m_prod")
+            _row = g[g["produk"] == psel5].iloc[0]
+            _key = _row["sku"] if str(_row["sku"]).strip() not in ("", "nan") else _row["produk"]
+            cd = meng.campaign_detail(_META, _key, _mp, m_since, m_until)
+            if cd.empty:
+                st.caption("Tidak ada campaign untuk produk ini pada rentang tanggal.")
+            else:
+                st.dataframe(pd.DataFrame({
+                    "Campaign": cd["campaign_name"], "Spend": cd["spend"].map(rp),
+                    "Purchase": cd["purchases"].map(num),
+                    "Cost/Purchase": cd["cost_per_purchase"].map(_rp),
+                    "CTR": cd["ctr"].map(lambda v: f"{v:.2f}%" if pd.notna(v) else "–"),
+                    "Budget/Hari": cd["daily_budget"].map(rp),
+                    "Status": cd.get("status", ""),
+                }), width='stretch', height=280, hide_index=True)
 
 
 st.markdown("---")

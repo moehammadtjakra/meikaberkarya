@@ -55,6 +55,7 @@ GSHEET_TAB_ORDER = ["Import-Order", "ORDERS", "Orders", "Order", "Import Order"]
 GSHEET_TAB_STOCK = ["Import-Stock", "STOK", "Stok", "Stock", "Import Stock"]
 GSHEET_TAB_OO = ["OrderOnline", "Order Online", "ORDERONLINE", "OO"]
 GSHEET_TAB_REF = ["Impor-RefProduk", "Import-RefProduk", "RefProduk", "Ref Produk"]
+GSHEET_TAB_META = ["Meta-Ads", "Meta Ads", "MetaAds"]        # data iklan Meta (Modul 5)
 GSHEET_OAUTH_CRED = os.path.join(BASE_DIR, "credentials", "oauth_client.json")
 GSHEET_OAUTH_TOKEN = os.path.join(BASE_DIR, "credentials", "authorized_user.json")
 # Untuk DEPLOY headless (Streamlit Cloud): isi via st.secrets (bukan file).

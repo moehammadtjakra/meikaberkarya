@@ -6,7 +6,8 @@ File yang dibuat:
 - `Code.gs` — backend (transform + upsert + riwayat upload).
 - `Dashboard.gs` — backend dashboard & proyeksi pencairan J&T.
 - `Order.gs` — backend OrderOnline (upload ke sheet terpisah + analisa leads/closing).
-- `Index.html` — halaman web (Upload Data · Dashboard · Pencairan J&T).
+- `MetaAds.gs` — backend Meta Ads (tarik iklan semua ad account, matching produk, pelabelan, log).
+- `Index.html` — halaman web (Upload Data · Meta Ads · Dashboard · Pencairan J&T).
 
 ---
 
@@ -143,6 +144,22 @@ Di tab **Dashboard**, section **"OrderOnline — Leads & Closing"** menampilkan:
 > **Penamaan produk (produk terbaik) mengacu ke `Impor-RefProduk`.** Karena `product_code` OrderOnline TIDAK unik (mis. `TPT` dipakai *Sikat Punggung* SKU TPT **dan** *Pembesar Layar Hp* SKU PLH), sistem memetakan tiap order lewat **`product_code` + `Variation` → SKU → `Nama Barang JNT`**, lalu dikelompokkan per **SKU**. Jadi produk yang sama menyatu (semua promo), sementara kode yang dipakai >1 produk tetap terpisah benar. Kalau ada order yang belum bisa dipetakan, muncul peringatan *"⚠ N kode belum ada di Ref Produk"* di bawah tabel — tinggal tambahkan baris `product_code`+`Variation`+`SKU`+`Nama Barang JNT` di sheet Impor-RefProduk.
 
 > **Rencana lanjutan:** auto-tarik data langsung dari OrderOnline (tempel token sesi per akun + pilih rentang tanggal + tombol tarik) — akan ditambahkan setelah endpoint export diuji dengan token aktif. Login penuh tidak bisa diotomatiskan (butuh reCAPTCHA), jadi tetap perlu tempel token (berlaku ~7 hari) per akun.
+
+## Meta Ads (tab baru)
+
+Tab **Meta Ads** menarik report iklan dari **seluruh Ad Account** di Business Manager yang bisa diakses token, ke sheet **`Meta-Ads`** (dengan `Ref_Ads_Map` untuk memori pelabelan & `Log_Meta` untuk riwayat).
+
+**Sekali di awal:** jalankan `metaSetup()` dari editor (buat 3 sheet). Butuh scope UrlFetch — otorisasi saat diminta.
+
+**Pakai:**
+1. Tab Meta Ads → **+ Tambah portfolio**: beri **nama portfolio** (mis. nama business) + tempel **access token** (izin `ads_read`; tambah `business_management` bila mau nama BM) → **Tambah**. Ulangi untuk **tiap business portfolio** (masing-masing tokennya sendiri). Klik **Deteksi semua Ad Account** untuk memastikan.
+2. Pilih **rentang tanggal** → **Tarik Data Iklan**. Sistem melooping **semua portfolio → semua ad account**, menyimpan per hari per campaign, lengkap **portfolio + BM + Ad Account**, dan mencatat ke Log. Satu token/akun yang gagal tidak menggagalkan yang lain.
+3. **Report Iklan per Produk** — spend, purchase, cost/purchase, ATC, CTR per produk (bisa difilter rentang tanggal).
+4. **Pelabelan Campaign → Produk** — nama produk diambil dari **nama campaign** (dibersihkan dari tanggal/POSTID/NEW/harga), lalu dicocokkan fuzzy ke **Nama Barang JNT**. Yang tidak yakin masuk daftar *perlu ditinjau*: pilih produk yang benar → **Kunci**. Sekali dikunci, campaign itu diingat selamanya (baris lama ikut diperbarui) — kecuali muncul campaign baru. Label terkunci bisa dibuka lagi.
+
+> Trigger harian opsional: `metaPasangTriggerHarian()` (tarik 7 hari terakhir tiap ~06:00).
+
+> Meta bisa mengoreksi angka retroaktif ~72 jam, jadi menarik ulang rentang yang sama itu wajar — tidak menduplikasi (upsert per tanggal+campaign).
 
 ## Kalau ada perubahan kode nanti
 Setelah mengedit `Code.gs`/`Index.html`, **Deploy → Manage deployments → (pilih) → Edit (pensil) → Version: New version → Deploy**. URL tetap sama.
