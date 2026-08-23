@@ -1433,24 +1433,29 @@ with tab5:
         _dmin, _dmax = meng.date_bounds(_META)
         _dmax = _dmax or _dt.date.today()
         _dmin = _dmin or (_dmax - _dt.timedelta(days=30))
-        fc = st.columns([1, 1, 2])
+        fc = st.columns([1, 1, 1, 3])
         m_since = fc[0].date_input("Dari (tgl iklan / order)", value=max(_dmin, _dmax - _dt.timedelta(days=30)),
                                    min_value=_dmin, max_value=_dmax, key="m_since")
         m_until = fc[1].date_input("Sampai", value=_dmax, min_value=_dmin, max_value=_dmax, key="m_until")
+        target_roi = fc[2].number_input("Target ROI (%)", 0, 2000, 40, step=10, key="m_roi",
+                                        help="ROI = laba ÷ spend. Verdict 🟢 Scale bila ROI ≥ target ini, "
+                                             "🟡 Optimize bila 0–target, 🔴 Kill bila ROI < 0. "
+                                             "Beda dari ROAS (yang pakai omzet, bukan laba).")
         _mp = dict(ongkir=ongkir, cashback_pct=cashback_pct / 100,
                    cod_fee_rate=cod_fee_pct / 100, opex_var_resi=opex_var_resi,
-                   success_default=success)
+                   success_default=success, target_roi=target_roi)
         R = meng.campaign_perf(_META, _OO_RESOLVED, _catalog, _mp, m_since, m_until)
 
         if not R["ada"] or R["produk"].empty:
             st.warning("Tidak ada iklan produk yang terpetakan pada rentang ini.")
         else:
             g = R["produk"]; tot = R["total"]
-            fc[2].markdown(
+            fc[3].markdown(
                 f"<div class='insight'>Rentang <b>{m_since:%d %b}</b>–<b>{m_until:%d %b %Y}</b>: "
                 f"spend <b>{rp(tot['spend'])}</b> → <b>{num(tot['leads'])}</b> leads, "
-                f"<b>{num(tot['closing'])}</b> closing, omzet <b>{rp(tot['omzet'])}</b> "
-                f"(ROAS <b>{tot['roas']:.2f}×</b>). Est. laba <b>{rp(tot['profit'])}</b>.</div>",
+                f"<b>{num(tot['closing'])}</b> closing, omzet <b>{rp(tot['omzet'])}</b> • "
+                f"ROAS <b>{tot['roas']:.2f}×</b> • ROI <b>{tot['roi']:.0f}%</b>. "
+                f"Est. laba <b>{rp(tot['profit'])}</b>.</div>",
                 unsafe_allow_html=True)
 
             n_scale = int(g["verdict"].str.contains("Scale").sum())
@@ -1472,6 +1477,27 @@ with tab5:
             kpi(k[4], "🟢/🟡/🔴", f"{n_scale} / {n_opt} / {n_kill}", "Scale / Opt / Kill",
                 cls="green" if n_scale >= n_kill else "amber")
 
+            k2 = st.columns(4)
+            kpi(k2[0], "Rata² Cost/Purchase Meta", rp(tot["avg_cpp_meta"]) if pd.notna(tot["avg_cpp_meta"]) else "–",
+                f"{num(tot['purchases'])} purchase (pixel)", cls="amber",
+                help="Total spend ÷ total purchase yang dilaporkan Pixel Meta. Biaya per 'order web' "
+                     "versi Meta — belum tentu = order nyata yang masuk sistem.")
+            kpi(k2[1], "CPA Real (closing OO)", rp(tot["cpa_real"]) if pd.notna(tot["cpa_real"]) else "–",
+                f"{num(tot['closing'])} closing", cls="green" if pd.notna(tot["cpa_real"]) else "",
+                help="Total spend ÷ total closing OrderOnline (paid & completed). Biaya akuisisi NYATA "
+                     "per order yang benar-benar terbayar — acuan utama profitabilitas.")
+            kpi(k2[2], "ROI Iklan Total", f"{tot['roi']:.0f}%" if pd.notna(tot["roi"]) else "–",
+                "laba ÷ spend", cls="green" if (tot.get("roi") or 0) >= 0 else "red",
+                help="ROI = est. laba ÷ spend × 100%. 0% = balik modal. Berbeda dari ROAS "
+                     "(ROAS pakai omzet/pendapatan, ROI pakai laba setelah HPP).")
+            kpi(k2[3], "Selisih Purchase Meta vs Leads OO",
+                f"{tot['loss_pct']:.0f}%" if pd.notna(tot["loss_pct"]) else "–",
+                f"{num(tot['purchases'])} purchase vs {num(tot['leads'])} leads",
+                cls="amber" if (tot.get("loss_pct") or 0) > 0 else "",
+                help="(purchase Meta − leads OrderOnline) ÷ purchase Meta × 100%. Positif = Meta "
+                     "melaporkan lebih banyak purchase daripada lead yang benar-benar masuk OrderOnline "
+                     "(indikasi over-count Pixel / lead bocor / beda atribusi). Idealnya mendekati 0%.")
+
             _w = []
             if R["unmatched_spend"] > 0:
                 _w.append(f"**{rp(R['unmatched_spend'])}** spend pada campaign **belum terpetakan** "
@@ -1484,9 +1510,9 @@ with tab5:
 
             # ---- tabel performa per produk ----
             st.markdown("##### 🧭 Performa & Keputusan per Produk")
-            st.caption("Impas = margin kotor/order (dari katalog). 🟢 Scale jika Cost/Closing ≤ 70% "
-                       "impas • 🟡 Optimize ≤ 100% • 🔴 Kill di atasnya / tanpa closing. "
-                       "Tanpa data katalog → pakai ROAS. Geser tabel untuk kolom lengkap.")
+            st.caption(f"Verdict pakai **ROI** (laba÷spend) vs **Target {int(target_roi)}%**: "
+                       "🟢 Scale ROI ≥ target • 🟡 Optimize 0–target • 🔴 Kill ROI < 0 / tanpa closing. "
+                       "Arahkan kursor ke judul kolom untuk penjelasan & cara hitung. Geser tabel ke kanan.")
             _rp = lambda v: rp(v) if pd.notna(v) else "–"
             show = pd.DataFrame({
                 "Produk": g["produk"], "Verdict": g["verdict"],
@@ -1502,13 +1528,38 @@ with tab5:
                 "Cost/Closing": g["cost_per_closing"].map(_rp),
                 "Impas/Closing": g["breakeven_cpa"].map(_rp),
                 "ROAS": g["roas"].map(lambda v: f"{v:.2f}×" if pd.notna(v) else "–"),
+                "ROI": g["roi"].map(lambda v: f"{v:.0f}%" if pd.notna(v) else "–"),
                 "Laba": g["profit"].map(_rp),
                 "Aksi": g["aksi"],
             })
-            st.dataframe(show, width='stretch', height=460, hide_index=True, column_config={
-                "Produk": st.column_config.TextColumn(width="medium"),
-                "Aksi": st.column_config.TextColumn(width="large"),
-            })
+            _tc = st.column_config.TextColumn
+            _tips = {
+                "Produk": ("Produk", "Nama barang unik (SKU). Iklan digabung dari semua campaign produk ini."),
+                "Verdict": ("Verdict", "Rekomendasi otomatis dari ROI vs Target ROI."),
+                "Spend": ("Spend", "Total belanja iklan produk ini pada rentang tanggal (Σ kolom spend Meta)."),
+                "Budget/Hari": ("Budget/Hari", "Jumlah daily_budget semua campaign aktif produk ini (snapshot)."),
+                "CPM": ("CPM", "Biaya per 1.000 impresi = spend ÷ impresi × 1.000."),
+                "CTR": ("CTR", "Click-through rate = klik ÷ impresi × 100%."),
+                "CPC": ("CPC", "Cost per click = spend ÷ klik."),
+                "Klik": ("Klik", "Total semua klik iklan."),
+                "Link Klik": ("Link Klik", "Klik menuju link/landing (subset dari klik)."),
+                "LPV": ("Landing Page View", "Jumlah kunjungan landing page yang termuat."),
+                "Purchase": ("Purchase (Meta)", "Jumlah purchase versi Pixel Meta (order web), kanonik — bukan penjumlahan alias."),
+                "Cost/Purchase": ("Cost/Purchase", "spend ÷ purchase Meta. Biaya per order versi Pixel."),
+                "Leads": ("Leads (OO)", "Jumlah order/lead masuk di OrderOnline (kolom created_at dalam rentang), dipetakan ke SKU ini."),
+                "Closing": ("Closing (OO)", "Leads yang paid & status completed/processing = order COD terbayar."),
+                "Omzet": ("Omzet", "Σ product_price dari order closing (pendapatan nyata)."),
+                "Cost/Closing": ("Cost/Closing (CPA real)", "spend ÷ closing OO. Biaya akuisisi order nyata."),
+                "Impas/Closing": ("Impas/Closing", "Margin kotor per order dari katalog (Nilai − HPP − fee + cashback). Batas CPA agar tak rugi."),
+                "ROAS": ("ROAS", "Return on Ad Spend = omzet ÷ spend. Berbasis pendapatan (bukan laba)."),
+                "ROI": ("ROI Iklan", "Laba ÷ spend × 100%. Laba = closing × margin − spend. 0% = balik modal. Dasar verdict."),
+                "Laba": ("Laba", "Estimasi laba = closing × margin kotor/order − spend."),
+                "Aksi": ("Aksi", "Rekomendasi tindakan berdasar ROI, CPA vs impas."),
+            }
+            _cfg = {k: _tc(help=v[1], width=("large" if k == "Aksi" else
+                                             "medium" if k == "Produk" else None))
+                    for k, v in _tips.items()}
+            st.dataframe(show, width='stretch', height=460, hide_index=True, column_config=_cfg)
 
             # ---- insight ringkas ----
             tips = []

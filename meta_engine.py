@@ -342,6 +342,7 @@ def campaign_perf(meta: pd.DataFrame, oo_resolved: pd.DataFrame,
     # --- metrik keputusan (berbasis closing REAL OrderOnline) ---
     _ld = g["leads"].replace(0, np.nan)
     _cl = g["closing"].replace(0, np.nan)
+    target_roi = float(p.get("target_roi", 40) or 0)      # % ROI minimal utk Scale
     g["cost_per_lead"] = (g["spend"] / _ld).round()
     g["cost_per_closing"] = (g["spend"] / _cl).round()
     g["roas"] = (g["omzet"] / g["spend"].replace(0, np.nan)).round(2)
@@ -349,30 +350,32 @@ def campaign_perf(meta: pd.DataFrame, oo_resolved: pd.DataFrame,
     # jadi margin kotor/order langsung terealisasi (tanpa diskon success lagi).
     g["breakeven_cpa"] = g["margin_order"]                              # impas = margin/closing
     g["profit"] = (g["closing"] * g["margin_order"] - g["spend"]).round()
-    g["ratio"] = g["cost_per_closing"] / g["breakeven_cpa"].replace(0, np.nan)
+    # ROI iklan = laba ÷ spend (%). ROI 0% = balik modal; beda dari ROAS (omzet÷spend).
+    g["roi"] = (g["profit"] / g["spend"].replace(0, np.nan) * 100).round(1)
 
     def _decide(r):
         has_m = pd.notna(r["margin_order"])
         if r["spend"] > 0 and r["closing"] <= 0:
             return ("🔴 Kill", "red",
                     f"Spend {_rp(r['spend'])} tanpa closing di rentang ini — matikan / cek tracking.")
-        if has_m and pd.notna(r["ratio"]) and np.isfinite(r["ratio"]):
-            if r["ratio"] <= 0.70:
+        if has_m and pd.notna(r["roi"]):
+            roi = r["roi"]
+            if roi >= target_roi:
                 return ("🟢 Scale", "green",
-                        f"CPA {_rp(r['cost_per_closing'])} « impas {_rp(r['breakeven_cpa'])}, "
-                        f"laba {_rp(r['profit'])} (ROAS {r['roas']:.1f}×). Naikkan budget.")
-            if r["ratio"] <= 1.0:
+                        f"ROI {roi:.0f}% ≥ target {target_roi:.0f}% (laba {_rp(r['profit'])}, "
+                        f"CPA {_rp(r['cost_per_closing'])} vs impas {_rp(r['breakeven_cpa'])}). Naikkan budget.")
+            if roi >= 0:
                 return ("🟡 Optimize", "amber",
-                        f"CPA {_rp(r['cost_per_closing'])} mendekati impas {_rp(r['breakeven_cpa'])}. "
-                        "Perbaiki closing/kreatif sebelum scale.")
+                        f"ROI {roi:.0f}% (laba {_rp(r['profit'])}) masih di bawah target {target_roi:.0f}%. "
+                        "Optimalkan closing/kreatif sebelum scale.")
             return ("🔴 Kill", "red",
-                    f"CPA {_rp(r['cost_per_closing'])} > impas {_rp(r['breakeven_cpa'])}; rugi "
-                    f"{_rp(abs(r['profit']))}. Turunkan CPA atau matikan.")
+                    f"ROI {roi:.0f}% — rugi {_rp(abs(r['profit']))} (CPA {_rp(r['cost_per_closing'])} > "
+                    f"impas {_rp(r['breakeven_cpa'])}). Turunkan CPA atau matikan.")
         # tanpa margin katalog: pakai ROAS omzet/spend
         ro = r["roas"]
         if pd.notna(ro):
             if ro >= 3:
-                return ("🟢 Scale", "green", f"ROAS {ro:.1f}× (omzet {_rp(r['omzet'])}). Layak scale.")
+                return ("🟢 Scale", "green", f"ROAS {ro:.1f}× (omzet {_rp(r['omzet'])}, margin tak diketahui). Layak scale.")
             if ro >= 1.5:
                 return ("🟡 Optimize", "amber", f"ROAS {ro:.1f}× — cukup, optimalkan closing.")
             return ("🔴 Kill", "red", f"ROAS {ro:.1f}× rendah (omzet {_rp(r['omzet'])} < biaya). Evaluasi.")
@@ -392,7 +395,15 @@ def campaign_perf(meta: pd.DataFrame, oo_resolved: pd.DataFrame,
         "n_produk": int(len(g)),
     }
     tot["roas"] = (tot["omzet"] / tot["spend"]) if tot["spend"] else np.nan
-    tot["cost_per_closing"] = (tot["spend"] / tot["closing"]) if tot["closing"] else np.nan
+    tot["roi"] = (tot["profit"] / tot["spend"] * 100) if tot["spend"] else np.nan
+    # rata-rata biaya akuisisi
+    tot["avg_cpp_meta"] = (tot["spend"] / tot["purchases"]) if tot["purchases"] else np.nan  # per purchase Meta
+    tot["cpa_real"] = (tot["spend"] / tot["closing"]) if tot["closing"] else np.nan          # per closing OO
+    tot["cost_per_closing"] = tot["cpa_real"]
+    # selisih jumlah purchase Meta vs leads OrderOnline (kebocoran/atribusi)
+    tot["gap_purchase_leads"] = tot["purchases"] - tot["leads"]
+    tot["loss_pct"] = ((tot["purchases"] - tot["leads"]) / tot["purchases"] * 100
+                       if tot["purchases"] else np.nan)
     out["total"] = tot
     out["produk"] = g
     return out
