@@ -141,10 +141,18 @@ def rupiah_input(container, label, default_value, key, help=None):
 
 
 # ----------------------------------------------------------------- DATA (cache)
-@st.cache_data(show_spinner="Membaca & memproses data Excel terbaru...")
+# TTL wajib: tanpa ini cache bertahan selamanya, sehingga dashboard bisa
+# menampilkan angka lama setelah data di GSheet diperbarui — sumber
+# kebingungan "angka beda dengan Apps Script" yang sulit dilacak.
+CACHE_TTL = 900          # 15 menit
+
+
+@st.cache_data(show_spinner="Membaca & memproses data Excel terbaru...", ttl=CACHE_TTL)
 def load_data(_mtime: float):
     raw = data_loader.load_workbook()
-    return data_cleaning.clean_all(raw)
+    d = data_cleaning.clean_all(raw)
+    d["_loaded_at"] = pd.Timestamp.now()
+    return d
 
 
 # --- Jembatan Streamlit Secrets (untuk DEPLOY headless di Streamlit Cloud) ---
@@ -164,10 +172,12 @@ except Exception:
     pass
 
 
-@st.cache_data(show_spinner="Menarik data live dari Google Sheet...")
+@st.cache_data(show_spinner="Menarik data live dari Google Sheet...", ttl=CACHE_TTL)
 def load_data_gsheet(_nonce: int):
     raw = data_loader.load_workbook()          # otomatis ke gsheet via config
-    return data_cleaning.clean_all(raw)
+    d = data_cleaning.clean_all(raw)
+    d["_loaded_at"] = pd.Timestamp.now()
+    return d
 
 
 def _use_gsheet():
@@ -204,8 +214,13 @@ recv_dist = forecasting.receive_distribution(dff)
 _hc = st.columns([6, 3, 1.6])
 _hc[0].markdown(f"## 📊 {config.APP_TITLE}")
 _src = "🌐 Google Sheet (live)" if _use_gsheet() else f"📄 {os.path.basename(str(xlpath))}"
+_loaded_at = data.get("_loaded_at")
+_umur = ""
+if _loaded_at is not None:
+    _mnt = int((pd.Timestamp.now() - _loaded_at).total_seconds() // 60)
+    _umur = " • dimuat **baru saja**" if _mnt < 1 else f" • dimuat **{_mnt} mnt lalu**"
 _hc[1].caption(f"Sumber: **{_src}** • {len(df_all):,} resi • data "
-               f"{dmin:%d %b %Y}–{dmax:%d %b %Y}".replace(",", "."))
+               f"{dmin:%d %b %Y}–{dmax:%d %b %Y}{_umur}".replace(",", "."))
 if _hc[2].button("🔄 Muat ulang", width='stretch'):
     st.session_state["gsheet_nonce"] = st.session_state.get("gsheet_nonce", 0) + 1
     st.cache_data.clear()
