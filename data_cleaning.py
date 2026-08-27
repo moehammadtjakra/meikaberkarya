@@ -33,6 +33,39 @@ def _to_numeric(s: pd.Series) -> pd.Series:
     return pd.to_numeric(cleaned, errors="coerce")
 
 
+def to_date_series(s: pd.Series) -> pd.Series:
+    """Parsing tanggal yang tahan sumber.
+
+    Excel mengirim datetime asli; Google Sheet mengirim TEKS sesuai locale
+    (mis. '27/08/2026'). pd.to_datetime polos menebak satu format dari baris
+    pertama lalu meng-NaT-kan sisanya — baris hilang diam-diam dari filter
+    rentang tanggal. Di sini setiap bentuk ditangani eksplisit.
+    """
+    if s is None or len(s) == 0:
+        return s
+    if pd.api.types.is_datetime64_any_dtype(s):
+        return s
+
+    # Angka -> serial Google Sheet/Excel (epoch 1899-12-30)
+    if s.dtype.kind in "if":
+        return pd.to_datetime(s, unit="D", origin="1899-12-30", errors="coerce")
+
+    txt = s.astype(str).str.strip()
+    txt = txt.mask(txt.str.lower().isin(["", "nan", "nat", "none", "-"]))
+
+    out = pd.Series(pd.NaT, index=s.index, dtype="datetime64[ns]")
+    # ISO dulu (YYYY-MM-DD / YYYY/MM/DD) — tak pernah ambigu
+    iso = txt.str.match(r"^\d{4}[-/]\d{1,2}[-/]\d{1,2}")
+    if iso.any():
+        out.loc[iso] = pd.to_datetime(txt[iso].str.slice(0, 10).str.replace("/", "-"),
+                                      format="%Y-%m-%d", errors="coerce")
+    # Sisanya: format Indonesia, hari di depan (27/08/2026, 27-08-2026)
+    rest = out.isna() & txt.notna()
+    if rest.any():
+        out.loc[rest] = pd.to_datetime(txt[rest], dayfirst=True, errors="coerce")
+    return out
+
+
 def _norm_text(s: pd.Series) -> pd.Series:
     return (
         s.astype(str)
@@ -168,7 +201,7 @@ def clean_meta(df_raw: pd.DataFrame | None) -> pd.DataFrame | None:
         if c in df:
             df[c] = _norm_text(df[c])
     if "date" in df:
-        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        df["date"] = to_date_series(df["date"])
     return df
 
 
@@ -185,4 +218,6 @@ def clean_all(raw: dict) -> dict:
         "meta": clean_meta(raw.get("meta")),   # sheet Meta-Ads (iklan) — Modul 5
         "path": raw.get("path"),
         "mtime": raw.get("mtime"),
+        "sheets": raw.get("sheets"),        # daftar tab di sumber (diagnostik)
+        "tabs_used": raw.get("tabs_used"),  # tab mana yang benar-benar terbaca
     }

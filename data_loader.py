@@ -104,7 +104,9 @@ def load_from_gsheet_oauth() -> dict:
         gc = gspread.oauth(credentials_filename=cred, authorized_user_filename=authf)
     sh = gc.open_by_key(gid)
 
-    def _grab(titles):
+    tabs_used = {}          # jejak: tab mana yang benar-benar terbaca (diagnostik)
+
+    def _grab(titles, key=None):
         for t in ([titles] if isinstance(titles, str) else (titles or [])):
             try:
                 r = sh.values_get(t, params={
@@ -115,6 +117,8 @@ def load_from_gsheet_oauth() -> dict:
                 continue
             df = _rows_to_df(r.get("values"))
             if df is not None and not df.empty:
+                if key:
+                    tabs_used[key] = f"{t} ({len(df)} baris)"
                 return df
         return None
 
@@ -129,12 +133,13 @@ def load_from_gsheet_oauth() -> dict:
         "problem": _grab(getattr(config, "GSHEET_TAB_PROBLEM", "Laporan Paket Tertunda")),
         "order": _grab(getattr(config, "GSHEET_TAB_ORDER", [])),
         "stock": _grab(getattr(config, "GSHEET_TAB_STOCK", [])),
-        "oo": _grab(getattr(config, "GSHEET_TAB_OO", [])),
-        "ref": _grab(getattr(config, "GSHEET_TAB_REF", [])),
-        "meta": _grab(getattr(config, "GSHEET_TAB_META", [])),
+        "oo": _grab(getattr(config, "GSHEET_TAB_OO", []), "oo"),
+        "ref": _grab(getattr(config, "GSHEET_TAB_REF", []), "ref"),
+        "meta": _grab(getattr(config, "GSHEET_TAB_META", []), "meta"),
         "path": "Google Sheet (live, OAuth)",
         "mtime": time.time(),
         "sheets": [w.title for w in sh.worksheets()],
+        "tabs_used": tabs_used,
     }
 
 

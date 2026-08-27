@@ -1461,6 +1461,46 @@ with tab5:
                    success_default=success, target_roi=target_roi)
         R = meng.campaign_perf(_META, _OO_RESOLVED, _catalog, _mp, m_since, m_until)
 
+        # --- Diagnostik: bandingkan dengan dashboard Apps Script bila angkanya beda
+        with st.expander("🔎 Diagnostik data Meta-Ads (buka bila angka beda dengan Apps Script)"):
+            _m = _META
+            _gid = str(getattr(config, "GSHEET_ID", "") or "—")
+            _gid_show = (_gid[:6] + "…" + _gid[-4:]) if len(_gid) > 12 else _gid
+            _d = _m["date"] if "date" in _m else None
+            _nat = int(_d.isna().sum()) if _d is not None else -1
+            st.markdown(
+                f"**Sumber:** `{'Google Sheet (live)' if _use_gsheet() else 'Excel'}` • "
+                f"**GSHEET_ID:** `{_gid_show}` • **baris Meta-Ads:** `{len(_m):,}` • "
+                f"**tanggal gagal parse (NaT):** `{_nat}`".replace(",", "."))
+            _tu = (data.get("tabs_used") or {}).get("meta")
+            if _tu:
+                st.markdown(f"**Tab yang terbaca:** `{_tu}`")
+            _sh = data.get("sheets")
+            if _sh:
+                _cand = [s for s in _sh if "meta" in str(s).lower()]
+                if len(_cand) > 1:
+                    st.warning(f"Ada **lebih dari satu** tab mirip Meta-Ads: `{_cand}`. "
+                               "Sistem memakai yang pertama cocok — pastikan itu yang benar.")
+            if _d is not None and _d.notna().any():
+                st.markdown(f"**Cakupan tanggal:** `{_d.min():%d %b %Y}` – `{_d.max():%d %b %Y}`")
+            if _nat > 0:
+                st.error(f"{_nat} baris punya tanggal tak terbaca sehingga **hilang dari filter**. "
+                         "Contoh nilai mentahnya:")
+                st.write(list(_m.loc[_d.isna(), "date"].astype(str).head(5)))
+            # Rekap per match_status pada rentang terpilih — ini yang dibandingkan
+            try:
+                _sel = _m[(_d >= pd.Timestamp(m_since)) & (_d <= pd.Timestamp(m_until))]
+                _rk = (_sel.assign(_s=_sel.get("match_status", "—"))
+                       .groupby("_s")
+                       .agg(baris=("_s", "size"), spend=("spend", "sum"),
+                            purchase=("purchases", "sum")).reset_index()
+                       .rename(columns={"_s": "match_status"}))
+                st.caption("Rekap rentang terpilih per status. Baris **TERKUNCI** inilah yang "
+                           "muncul di dashboard Apps Script — cocokkan angkanya.")
+                st.dataframe(_rk, hide_index=True, width='stretch')
+            except Exception as _e:
+                st.caption(f"Rekap gagal dihitung: {_e}")
+
         if not R["ada"] or R["produk"].empty:
             st.warning("Tidak ada iklan produk yang terpetakan pada rentang ini.")
         else:
