@@ -333,7 +333,8 @@
       <div class="kpis">
         <div class="kpi"><span>Total resi dikirim</span><b id="kKirim">…</b><i id="kKirimI"></i></div>
         <div class="kpi good"><span>Sampai tujuan</span><b id="kSampai">…</b><i id="kNetSampai"></i></div>
-        <div class="kpi warn"><span>Bermasalah / retur</span><b id="kMasalah">…</b><i id="kMasalahI"></i></div>
+        <div class="kpi warn"><span>Bermasalah / retur</span><b id="kMasalah">…</b><i id="kMasalahI"></i>
+          <button class="kpibtn" onclick="previewRetur()">👁 Preview &amp; Export</button></div>
         <div class="kpi"><span>Masih dalam pengiriman</span><b id="kProses">…</b><i id="kNetProses"></i></div>
       </div>
       <div class="kpis five">
@@ -405,6 +406,25 @@
         <div class="msg" id="msgMr"></div>
       </div>
 
+      <div class="mt">Tren Spend Harian (Meta Ads)</div>
+      <div class="card">
+        <div class="cardhd">
+          <p class="d" style="margin:0;">Total belanja iklan per hari pada bulan terpilih. Arahkan kursor ke grafik
+            untuk melihat nilai harian. <span class="d">(campaign bisnis lain yang dikecualikan tidak dihitung)</span></p>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <label class="fld" style="margin:0;">Bulan</label>
+            <select class="sel" id="mSpendBulan" style="width:auto;" onchange="mLoadSpend(this.value)"></select>
+          </div>
+        </div>
+        <div id="mSpendWrap" style="position:relative;margin-top:10px;">
+          <div id="mSpendChart" style="width:100%;"></div>
+          <div id="mSpendTip" style="position:absolute;display:none;pointer-events:none;background:#111827;color:#fff;
+            font-size:11.5px;padding:5px 8px;border-radius:6px;white-space:nowrap;transform:translate(-50%,-130%);z-index:5;"></div>
+        </div>
+        <div class="d" id="mSpendTot" style="margin-top:6px;"></div>
+        <div class="msg" id="msgSpend"></div>
+      </div>
+
       <details id="kal">
         <summary>Kalibrasi status — nilai unik kolom "Tanda TTD" yang ditemukan sistem</summary>
         <div class="card" style="margin-top:8px;">
@@ -464,6 +484,26 @@
         <div class="scrollbox" style="max-height:64vh;"><table class="tbl" id="tBelum"></table></div>
       </div>
       <div class="msg" id="msgBelum"></div>
+    </div>
+  </div>
+
+  <!-- ============ MODAL: Bermasalah / retur ============ -->
+  <div class="ovl" id="ovRetur">
+    <div class="modalbox" style="max-width:1300px;">
+      <div class="modalhd">
+        <div>
+          <b>Bermasalah / retur</b>
+          <div class="d" id="returSub" style="margin-top:2px;">memuat…</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="primary" id="btnReturXls" onclick="downloadRetur()">⤓ Download Excel</button>
+          <button class="ghost" onclick="tutupRetur()">Tutup</button>
+        </div>
+      </div>
+      <div class="modalbd">
+        <div class="scrollbox" style="max-height:64vh;"><table class="tbl" id="tRetur"></table></div>
+      </div>
+      <div class="msg" id="msgRetur"></div>
     </div>
   </div>
 
@@ -871,7 +911,7 @@
       if(s&&!s.value) s.value=fmt(new Date(Date.now()-30*864e5));
       if(u&&!u.value) u.value=fmt(new Date());
     })();
-    mLoadReport(); mLoadReportAkun();
+    mLoadReport(); mLoadReportAkun(); mLoadSpend();
     // pasang placeholder di tiap section
     document.getElementById('tBulan').innerHTML=ph(10);
     document.getElementById('tProv').innerHTML=ph(10);
@@ -1004,18 +1044,23 @@
   }
 
   function drawBulan(){
-    var tot={dikirim:0,sampai:0,bermasalah:0,proses:0,net:0};
+    var tot={dikirim:0,sampai:0,bermasalah:0,proses:0,net:0,estOngkir:0};
     DASH.bulanan.forEach(function(x){ tot.dikirim+=x.dikirim; tot.sampai+=x.sampai;
-      tot.bermasalah+=x.bermasalah; tot.proses+=x.proses; tot.net+=x.net; });
+      tot.bermasalah+=x.bermasalah; tot.proses+=x.proses; tot.net+=x.net; tot.estOngkir+=(x.estOngkirRetur||0); });
+    var tol=(DASH.toleransiRetur!=null?DASH.toleransiRetur:20);
     document.getElementById('tBulan').innerHTML=
       '<thead><tr><th>Bulan pengiriman</th><th>Resi dikirim</th><th>Sampai</th><th>% sampai</th>'+
-      '<th>Bermasalah / retur</th><th>% retur</th><th>Proses kirim</th><th>% proses</th>'+
+      '<th>Bermasalah / retur</th><th>% retur</th>'+
+      '<th title="(% retur − toleransi '+tol+'%) × total biaya resi retur bulan itu">Est. ongkir retur</th>'+
+      '<th>Proses kirim</th><th>% proses</th>'+
       '<th>Rata² durasi (hari)</th><th>Net omzet (sampai)</th></tr></thead><tbody>'+
       DASH.bulanan.map(function(x){
         return '<tr><td><b>'+esc(x.label)+'</b></td><td>'+nf(x.dikirim)+'</td>'+
           '<td>'+nf(x.sampai)+'</td><td><span class="tag ok">'+x.pctSampai+'%</span></td>'+
           '<td>'+nf(x.bermasalah)+'</td>'+
           '<td>'+(x.pctBermasalah>0?'<span class="tag no">'+x.pctBermasalah+'%</span>':'0%')+'</td>'+
+          '<td>'+(x.estOngkirRetur>0?'<span class="tag no">'+rp(x.estOngkirRetur)+'</span>':'—')+
+            (x.lebihRetur>0?' <span class="d">('+x.lebihRetur+'%)</span>':'')+'</td>'+
           '<td>'+nf(x.proses)+'</td>'+
           '<td>'+(x.pctProses>0?'<span class="tag wt">'+x.pctProses+'%</span>':'0%')+'</td>'+
           '<td>'+(x.durasi===''?'—':x.durasi)+'</td><td>'+rp(x.net)+'</td></tr>';
@@ -1024,6 +1069,7 @@
       '<td>'+(tot.dikirim?Math.round(tot.sampai/tot.dikirim*1000)/10:0)+'%</td>'+
       '<td>'+nf(tot.bermasalah)+'</td>'+
       '<td>'+(tot.dikirim?Math.round(tot.bermasalah/tot.dikirim*1000)/10:0)+'%</td>'+
+      '<td>'+(tot.estOngkir>0?rp(tot.estOngkir):'—')+'</td>'+
       '<td>'+nf(tot.proses)+'</td>'+
       '<td>'+(tot.dikirim?Math.round(tot.proses/tot.dikirim*1000)/10:0)+'%</td>'+
       '<td>'+DASH.ringkas.rerataDurasi+'</td><td>'+rp(tot.net)+'</td></tr></tfoot>';
@@ -1144,6 +1190,60 @@
     }).withFailureHandler(function(e){
       b.disabled=false; show('msgBelum','err','✕ '+(e&&e.message?e.message:'Gagal export.'));
     }).exportBelumReconcile();
+  }
+
+  // ===== Modal Bermasalah / retur =====
+  var RETUR_NUM=null;   // set kolom numerik (untuk format Rp & align kanan)
+  function previewRetur(){
+    document.getElementById('ovRetur').classList.add('show');
+    hide('msgRetur');
+    document.getElementById('returSub').textContent='memuat…';
+    document.getElementById('tRetur').innerHTML=ph(6);
+    document.getElementById('btnReturXls').disabled=true;
+    google.script.run.withSuccessHandler(function(d){
+      renderRetur(d);
+      document.getElementById('btnReturXls').disabled=(d.total===0);
+    }).withFailureHandler(function(e){
+      document.getElementById('returSub').textContent='';
+      document.getElementById('tRetur').innerHTML='';
+      show('msgRetur','err','✕ '+(e&&e.message?e.message:'Gagal memuat.'));
+    }).getBermasalah();
+  }
+  function tutupRetur(){ document.getElementById('ovRetur').classList.remove('show'); }
+  document.getElementById('ovRetur').addEventListener('click',function(e){ if(e.target===this) tutupRetur(); });
+  function renderRetur(d){
+    document.getElementById('returSub').innerHTML='<b>'+nf(d.total)+'</b> resi retur/bermasalah · total biaya '+
+      '<b>'+rp(d.totalBiaya)+'</b> <span style="opacity:.7;">(Tanda TTD belum sampai, tapi Waktu Terima terisi)</span>';
+    if(!d.total){
+      document.getElementById('tRetur').innerHTML='<tbody><tr><td style="color:var(--muted);">Tidak ada resi bermasalah/retur. 🎉</td></tr></tbody>';
+      return;
+    }
+    var numSet={}; (d.numCols||[]).forEach(function(c){ numSet[c]=1; });
+    RETUR_NUM=numSet;
+    var th='<thead><tr>'+d.cols.map(function(h){ return '<th'+(numSet[h]?' class="r"':'')+'>'+esc(h)+'</th>'; }).join('')+'</tr></thead>';
+    var tb='<tbody>'+d.rows.map(function(r){
+      return '<tr>'+r.map(function(v,i){
+        var col=d.cols[i];
+        return numSet[col] ? '<td class="r">'+rp(v)+'</td>' : '<td>'+esc(v)+'</td>';
+      }).join('')+'</tr>';
+    }).join('')+'</tbody>';
+    document.getElementById('tRetur').innerHTML=th+tb;
+  }
+  function downloadRetur(){
+    var b=document.getElementById('btnReturXls'); b.disabled=true;
+    show('msgRetur','info','<span class="spin" style="border-color:#999;border-top-color:transparent"></span> Menyiapkan Excel…');
+    google.script.run.withSuccessHandler(function(r){
+      b.disabled=false;
+      var bin=atob(r.b64), arr=new Uint8Array(bin.length);
+      for(var i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+      var url=URL.createObjectURL(new Blob([arr],{type:r.mime||'application/octet-stream'}));
+      var a=document.createElement('a'); a.href=url; a.download=r.nama;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function(){URL.revokeObjectURL(url);},1500);
+      show('msgRetur','ok','✔ '+nf(r.jumlah)+' baris diunduh ke '+esc(r.nama));
+    }).withFailureHandler(function(e){
+      b.disabled=false; show('msgRetur','err','✕ '+(e&&e.message?e.message:'Gagal export.'));
+    }).exportBermasalah();
   }
 
   function cekDup(){
@@ -1359,6 +1459,68 @@
         }).join('')+'</tbody>';
     }).withFailureHandler(function(e){ show('msgMr','err','✕ '+(e&&e.message?e.message:'Gagal.')); }).metaReportAkun(s,u);
   }
+  // ===== Tren spend harian (line chart) =====
+  var MSPEND=[];
+  function mNamaBulan(ym){ var b=['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+    var p=String(ym||'').split('-'); return (b[(+p[1]||1)-1]||'?')+' '+(p[0]||''); }
+  function mRpShort(v){ v=Math.round(v); if(v>=1e6) return (Math.round(v/1e5)/10)+'jt'; if(v>=1e3) return Math.round(v/1e3)+'rb'; return ''+v; }
+  function mLoadSpend(bulan){
+    hide('msgSpend');
+    document.getElementById('mSpendChart').innerHTML='<div class="d" style="padding:24px 0;text-align:center;">Memuat…</div>';
+    google.script.run.withSuccessHandler(function(d){
+      var sel=document.getElementById('mSpendBulan');
+      if(d.bulanTersedia&&d.bulanTersedia.length){
+        sel.innerHTML=d.bulanTersedia.map(function(b){ return '<option value="'+b+'"'+(b===d.bulan?' selected':'')+'>'+esc(mNamaBulan(b))+'</option>'; }).join('');
+      } else { sel.innerHTML='<option>—</option>'; }
+      if(!d.ada||!d.hari.length){
+        document.getElementById('mSpendChart').innerHTML='<div class="d" style="padding:24px 0;text-align:center;">Belum ada data spend. Tarik dulu di tab Meta Ads.</div>';
+        document.getElementById('mSpendTot').textContent=''; MSPEND=[]; return;
+      }
+      document.getElementById('mSpendTot').innerHTML='Total spend '+esc(mNamaBulan(d.bulan))+': <b>'+rp(d.total)+'</b> · rata²/hari '+rp(Math.round(d.total/d.hari.length));
+      MSPEND=d.hari; mDrawSpendChart();
+    }).withFailureHandler(function(e){ show('msgSpend','err','✕ '+(e&&e.message?e.message:'Gagal memuat.')); }).metaSpendHarian(bulan||'');
+  }
+  function mDrawSpendChart(){
+    var wrap=document.getElementById('mSpendChart'); if(!MSPEND.length) return;
+    var W=Math.max(320, wrap.clientWidth||640), H=260;
+    var padL=52,padR=14,padT=16,padB=26, plotW=W-padL-padR, plotH=H-padT-padB;
+    var data=MSPEND, n=data.length;
+    var maxV=Math.max.apply(null, data.map(function(d){return d.spend;}).concat([1]));
+    var X=function(i){ return padL + (n<=1?plotW/2:i/(n-1)*plotW); };
+    var Y=function(v){ return padT + plotH - (v/maxV)*plotH; };
+    var grid='';
+    for(var g=0;g<=4;g++){ var v=maxV*g/4, y=Y(v);
+      grid+='<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="#eef2f7"/>'+
+        '<text x="'+(padL-6)+'" y="'+(y+3)+'" text-anchor="end" font-size="9" fill="#8a94a6">'+mRpShort(v)+'</text>'; }
+    var step=Math.max(1,Math.ceil(n/10)), xlab='';
+    for(var i=0;i<n;i+=step){ xlab+='<text x="'+X(i)+'" y="'+(H-8)+'" text-anchor="middle" font-size="9" fill="#8a94a6">'+data[i].hari+'</text>'; }
+    var pts=data.map(function(d,i){ return X(i)+','+Y(d.spend); }).join(' ');
+    var area='M '+X(0)+' '+Y(0)+' L '+data.map(function(d,i){return X(i)+' '+Y(d.spend);}).join(' L ')+' L '+X(n-1)+' '+Y(0)+' Z';
+    wrap.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" width="100%" height="'+H+'" style="display:block;overflow:visible;">'+
+      grid+'<path d="'+area+'" fill="rgba(11,107,58,.09)"/>'+
+      '<polyline points="'+pts+'" fill="none" stroke="var(--jt)" stroke-width="2"/>'+xlab+
+      '<line id="mSpendVL" y1="'+padT+'" y2="'+(padT+plotH)+'" stroke="var(--jt)" stroke-dasharray="3 3" style="display:none;"/>'+
+      '<circle id="mSpendDot" r="4" fill="#fff" stroke="var(--jt)" stroke-width="2" style="display:none;"/>'+
+      '<rect id="mSpendHit" x="'+padL+'" y="'+padT+'" width="'+plotW+'" height="'+plotH+'" fill="transparent"/></svg>';
+    var svgEl=wrap.querySelector('svg'), hit=wrap.querySelector('#mSpendHit');
+    var dot=wrap.querySelector('#mSpendDot'), vl=wrap.querySelector('#mSpendVL'), tip=document.getElementById('mSpendTip');
+    function move(cx){
+      var rect=svgEl.getBoundingClientRect(), scale=W/rect.width;
+      var mx=(cx-rect.left)*scale;
+      var i=Math.round((mx-padL)/(plotW||1)*(n-1)); if(i<0)i=0; if(i>n-1)i=n-1;
+      var px=X(i), py=Y(data[i].spend);
+      dot.setAttribute('cx',px); dot.setAttribute('cy',py); dot.style.display='';
+      vl.setAttribute('x1',px); vl.setAttribute('x2',px); vl.style.display='';
+      tip.style.display='block'; tip.style.left=(px/scale)+'px'; tip.style.top=(py/scale)+'px';
+      tip.innerHTML='<b>Tgl '+data[i].hari+'</b> · '+rp(data[i].spend);
+    }
+    function leave(){ dot.style.display='none'; vl.style.display='none'; tip.style.display='none'; }
+    hit.addEventListener('mousemove',function(e){ move(e.clientX); });
+    hit.addEventListener('mouseleave',leave);
+    hit.addEventListener('touchmove',function(e){ if(e.touches[0]){ move(e.touches[0].clientX); e.preventDefault(); } },{passive:false});
+  }
+  var mSpendRT=null;
+  window.addEventListener('resize',function(){ clearTimeout(mSpendRT); mSpendRT=setTimeout(function(){ if(MSPEND.length) mDrawSpendChart(); },200); });
   function mProdukOptions(sel){
     return '<option value="">— pilih produk —</option>'+MPRODUK.map(function(p){
       return '<option value="'+esc(p.sku)+'"'+(sel===p.sku?' selected':'')+'>'+esc(p.nama)+' ['+esc(p.sku)+']</option>';}).join('');

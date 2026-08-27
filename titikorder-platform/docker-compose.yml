@@ -1,0 +1,28 @@
+# PostgreSQL untuk pengembangan lokal.
+# Versi dikunci 16 agar sama dengan Cloud SQL di produksi.
+#
+#   docker compose up -d      nyalakan
+#   docker compose ps         cek status
+#   docker compose stop       matikan (data tetap aman di volume)
+#   docker compose down -v    HAPUS TOTAL termasuk datanya
+services:
+  db:
+    image: postgres:16
+    container_name: titikorder-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: titikorder
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d titikorder"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  db-data:

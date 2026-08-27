@@ -558,17 +558,50 @@ function metaGetProdukList() {
   return loadProdukRef_().sort(function (a, b) { return a.nama < b.nama ? -1 : 1; });
 }
 
-/** Campaign yang belum terkunci / perlu review, dari Ref_Ads_Map. */
+/**
+ * Semua campaign yang BELUM CLEAR di pelabelan — yakni belum dikunci DAN belum
+ * dikecualikan (status di Ref_Ads_Map: locked=false).
+ *
+ * Sumber utama = sheet Meta-Ads (semua campaign yang benar-benar ada datanya),
+ * bukan hanya Ref_Ads_Map. Ini memperbaiki kasus campaign yang masih
+ * "PERLU REVIEW" di Meta-Ads tapi TIDAK tercatat di Ref_Ads_Map (mis. map
+ * pernah ter-reset) sehingga sebelumnya tidak muncul di daftar.
+ */
 function metaGetReview() {
   var map = loadMap_();
-  var out = [];
+  var byKey = {};
+
+  var sh = getSpreadsheet().getSheetByName(SHEET_META);
+  if (sh && sh.getLastRow() >= 2) {
+    var head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+    var ix = {}; head.forEach(function (h, i) { ix[h] = i; });
+    var data = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();
+    data.forEach(function (r) {
+      var nm = String(r[ix.campaign_name] || '').trim();
+      var key = mMapKey_(nm);
+      if (!key) return;
+      var m = map[key];
+      if (m && m.locked) return;                 // sudah dikunci / dikecualikan -> lewati
+      if (byKey[key]) return;                     // 1 baris per campaign
+      byKey[key] = {
+        key: key,
+        campaign_name: nm || (m && m.campaign_name) || key,
+        sku: (m && m.sku) || String(r[ix.sku] || '').trim(),
+        nama: (m && m.nama) || String(r[ix.produk] || '').trim(),
+        confidence: (m && m.confidence != null) ? m.confidence : mNum_(r[ix.match_confidence])
+      };
+    });
+  }
+
+  // Tambahkan juga entri map yang belum terkunci tapi tak ada di sheet (data lama).
   Object.keys(map).forEach(function (k) {
     var m = map[k];
-    if (m.locked) return;                       // sudah dikunci -> lewati
-    out.push({ key: k, campaign_name: m.campaign_name, sku: m.sku, nama: m.nama, confidence: m.confidence });
+    if (m.locked || byKey[k]) return;
+    byKey[k] = { key: k, campaign_name: m.campaign_name, sku: m.sku, nama: m.nama, confidence: m.confidence };
   });
-  // urut confidence terendah dulu (paling perlu perhatian)
-  out.sort(function (a, b) { return (a.confidence || 0) - (b.confidence || 0); });
+
+  var out = Object.keys(byKey).map(function (k) { return byKey[k]; });
+  out.sort(function (a, b) { return (a.confidence || 0) - (b.confidence || 0); });  // paling ragu dulu
   return out;
 }
 
@@ -807,6 +840,51 @@ function metaReportAkun(sinceStr, untilStr) {
     o.ctr = o.impressions > 0 ? Math.round(o.clicks / o.impressions * 1000) / 10 : 0;
     return o;
   }).sort(function (a, b) { return b.spend - a.spend; });
+  return out;
+}
+
+/**
+ * Tren SPEND HARIAN untuk satu bulan (yyyy-MM) — untuk line chart di dashboard.
+ * Menghitung total spend iklan bisnis ini per hari; campaign DIKECUALIKAN
+ * (bisnis lain) tidak dihitung. Juga mengembalikan daftar bulan yang tersedia
+ * agar dropdown bisa diisi. Kalau bulan kosong -> pakai bulan terbaru di data.
+ */
+function metaSpendHarian(bulan) {
+  var sh = getSpreadsheet().getSheetByName(SHEET_META);
+  var out = { ada: false, bulan: bulan || '', bulanTersedia: [], hari: [], total: 0 };
+  if (!sh || sh.getLastRow() < 2) return out;
+  var head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  var ix = {}; head.forEach(function (h, i) { ix[h] = i; });
+  var data = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();
+
+  // kumpulkan bulan yang ada + spend per tanggal (yyyy-MM-dd)
+  var bulanSet = {}, perTgl = {};
+  var p2 = function (n) { return (n < 10 ? '0' : '') + n; };
+  data.forEach(function (r) {
+    if (String(r[ix.match_status] || '').trim().toUpperCase() === 'DIKECUALIKAN') return;  // bisnis lain
+    var d = mParseTgl_(r[ix.date]);
+    if (!d) return;
+    var ym = d.getFullYear() + '-' + p2(d.getMonth() + 1);
+    bulanSet[ym] = 1;
+    var ds = ym + '-' + p2(d.getDate());
+    perTgl[ds] = (perTgl[ds] || 0) + mNum_(r[ix.spend]);
+  });
+
+  out.bulanTersedia = Object.keys(bulanSet).sort().reverse();
+  if (!out.bulanTersedia.length) return out;
+  var ym = (bulan && bulanSet[bulan]) ? bulan : out.bulanTersedia[0];
+  out.bulan = ym; out.ada = true;
+
+  var thn = +ym.split('-')[0], mon = +ym.split('-')[1];
+  var jmlHari = new Date(thn, mon, 0).getDate();                 // jumlah hari di bulan itu
+  var total = 0;
+  for (var h = 1; h <= jmlHari; h++) {
+    var ds = ym + '-' + p2(h);
+    var sp = Math.round(perTgl[ds] || 0);
+    total += sp;
+    out.hari.push({ tgl: ds, hari: h, spend: sp });
+  }
+  out.total = total;
   return out;
 }
 

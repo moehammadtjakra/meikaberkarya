@@ -30,6 +30,12 @@ var DASH = {
   aKey: 'No. Waybill', aKirim: 'Tanggal Pengiriman', aProv: 'Provinsi Penerima',
   aTerima: 'Waktu Terima', aTTD: 'Tanda TTD', aBarang: 'Nama Barang', aFlagCOD: 'COD',
   aCOD: 'Nilai COD', aFee: 'COD Fee', aBiaya: 'Total Biaya Setelah Diskon',
+  aBiayaTotal: 'Total Biaya',
+
+  // Toleransi retur J&T (persen). Retur di atas angka ini -> ongkir retur jadi
+  // beban penjual; estimasi ongkir retur = (%retur − toleransi) × total biaya
+  // resi-resi yang retur pada bulan itu.
+  toleransiRetur: 20,
 
   // kolom Settle Reconcile
   rKey: 'No. Waybill', rTTD: 'Waktu TTD', rStatus: 'Status Retur',
@@ -60,6 +66,7 @@ function parseResi_(r) {
   var tTerima = tgl_(r[DASH.aTerima]);
   var tKirim  = tgl_(r[DASH.aKirim]);
   var cod = ang_(r[DASH.aCOD]), fee = ang_(r[DASH.aFee]), biaya = ang_(r[DASH.aBiaya]);
+  var biayaTotal = ang_(r[DASH.aBiayaTotal]);
   var isCod = cod > 0;
   var kelas = sampai ? 'sampai' : (tTerima ? 'bermasalah' : 'proses');
   var durasi = null;
@@ -68,7 +75,7 @@ function parseResi_(r) {
     if (d >= 0 && d < 120) durasi = d;
   }
   return { ttd: ttd, sampai: sampai, kelas: kelas, isCod: isCod,
-           net: isCod ? (cod - fee - biaya) : 0,
+           net: isCod ? (cod - fee - biaya) : 0, biayaTotal: biayaTotal,
            tTerima: tTerima, tKirim: tKirim, durasi: durasi,
            key: normKey(r[DASH.aKey]),
            prov: String(r[DASH.aProv] == null ? '' : r[DASH.aProv]).trim() || '(kosong)' };
@@ -119,9 +126,10 @@ function getDashInti() {
     var bk = e.tKirim ? Utilities.formatDate(e.tKirim, tz, 'yyyy-MM') : '(tanpa tanggal)';
     var B = bulan[bk] || (bulan[bk] = { bulan: bk,
               label: bk === '(tanpa tanggal)' ? bk : namaBulan_(e.tKirim),
-              dikirim: 0, sampai: 0, bermasalah: 0, proses: 0, net: 0, durTotal: 0, durN: 0 });
+              dikirim: 0, sampai: 0, bermasalah: 0, proses: 0, net: 0, durTotal: 0, durN: 0, returBiaya: 0 });
     B.dikirim++; B[e.kelas]++;
     if (e.kelas === 'sampai') B.net += e.net;
+    if (e.kelas === 'bermasalah') B.returBiaya += e.biayaTotal;   // Total Biaya resi retur
     if (e.durasi !== null) { B.durTotal += e.durasi; B.durN++; }
   });
 
@@ -140,11 +148,17 @@ function getDashInti() {
              durasi: P.durN ? Math.round(P.durTotal / P.durN * 10) / 10 : '', net: P.net };
   }).sort(function (a, b) { return b.total - a.total; });
 
+  var tol = DASH.toleransiRetur || 0;
+  out.toleransiRetur = tol;
   out.bulanan = Object.keys(bulan).sort().reverse().map(function (k) {
     var B = bulan[k];
+    var pctBer = pct_(B.bermasalah, B.dikirim);
+    var lebih = Math.max(0, pctBer - tol);                        // %retur di atas toleransi
+    var estOngkir = Math.round(lebih / 100 * B.returBiaya);       // × total biaya resi retur
     return { bulan: B.bulan, label: B.label, dikirim: B.dikirim,
              sampai: B.sampai, pctSampai: pct_(B.sampai, B.dikirim),
-             bermasalah: B.bermasalah, pctBermasalah: pct_(B.bermasalah, B.dikirim),
+             bermasalah: B.bermasalah, pctBermasalah: pctBer,
+             returBiaya: B.returBiaya, estOngkirRetur: estOngkir, lebihRetur: Math.round(lebih * 10) / 10,
              proses: B.proses, pctProses: pct_(B.proses, B.dikirim),
              durasi: B.durN ? Math.round(B.durTotal / B.durN * 10) / 10 : '', net: B.net };
   });
@@ -330,6 +344,55 @@ function exportBelumReconcile() {
   });
   return bikinXlsx_('Sampai_BelumReconcile', BELUM_COLS, body,
                     ['Nilai Barang', 'Biaya Kirim Setelah Diskon', 'Nilai COD', 'COD Fee', 'Net Diterima']);
+}
+
+// ===========================================================================
+// PREVIEW & EXPORT — "Bermasalah / retur"
+//
+// Resi yang persis dihitung widget "Bermasalah / retur": Tanda TTD belum
+// sampai TAPI Waktu Terima sudah terisi (paket berhenti/retur/selesai tanpa
+// TTD normal). Kolom mengikuti permintaan: identitas penerima + rincian biaya.
+// ===========================================================================
+var RETUR_COLS = [
+  'No. Waybill', 'Tgl Kirim', 'Penerima', 'No. HP', 'Provinsi', 'Kota', 'Kecamatan',
+  'Alamat', 'Nama Barang', 'Total Biaya', 'Biaya Diskon', 'Total Biaya Setelah Diskon',
+  'Nilai COD', 'COD Fee', 'Diterima Oleh', 'Hubungan', 'Waktu Terima', 'Tanda TTD',
+  'COD', 'Nilai Produk'
+];
+var RETUR_NUMCOLS = ['Total Biaya', 'Biaya Diskon', 'Total Biaya Setelah Diskon',
+                     'Nilai COD', 'COD Fee', 'Nilai Produk'];
+
+function dataBermasalah_() {
+  var A = bacaSheet_(CONFIG.allResi.sheetName);
+  var s = function (v) { return String(v == null ? '' : v).trim(); };
+  var rows = [];
+  A.rows.forEach(function (r) {
+    var e = parseResi_(r);
+    if (e.kelas !== 'bermasalah') return;                 // hanya yang retur/bermasalah
+    rows.push([
+      s(r['No. Waybill']), fmtTgl_(r['Tanggal Pengiriman']), s(r['Penerima']),
+      s(r['Telepon Penerima']), s(r['Provinsi Penerima']), s(r['Kota Penerima']),
+      s(r['Kecamatan Penerima']), s(r['Alamat Penerima']), s(r['Nama Barang']),
+      ang_(r['Total Biaya']), ang_(r['Biaya Diskon']), ang_(r['Total Biaya Setelah Diskon']),
+      ang_(r['Nilai COD']), ang_(r['COD Fee']), s(r['Diterima Oleh']), s(r['Hubungan']),
+      fmtTgl_(r['Waktu Terima']), s(r['Tanda TTD']), s(r['COD']), ang_(r['Nilai Produk'])
+    ]);
+  });
+  return rows;
+}
+
+/** Dipanggil dari modal preview retur. */
+function getBermasalah() {
+  var rows = dataBermasalah_();
+  var iBiaya = RETUR_COLS.indexOf('Total Biaya');
+  var totalBiaya = rows.reduce(function (a, r) { return a + (r[iBiaya] || 0); }, 0);
+  return { cols: RETUR_COLS, numCols: RETUR_NUMCOLS, rows: rows, total: rows.length, totalBiaya: totalBiaya };
+}
+
+/** Bangun file .xlsx daftar bermasalah/retur. */
+function exportBermasalah() {
+  var rows = dataBermasalah_();
+  return bikinXlsx_('Bermasalah_Retur', RETUR_COLS, rows, RETUR_NUMCOLS);
 }
 
 /** Format tanggal untuk tampilan (dd/MM/yyyy), aman untuk sel kosong. */

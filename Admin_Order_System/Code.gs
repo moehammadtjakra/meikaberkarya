@@ -22,7 +22,7 @@
  *   → ikon pensil → dropdown Version → pilih "New version" → Deploy
  *   ⚠ Kalau dropdown Version tidak diubah ke "New version", kode lama tetap jalan.
  */
-var APP_VERSION = 'v8.3 — konversi Drive retry otomatis (atasi Internal Error saat import)';
+var APP_VERSION = 'v8.5 — UI compact + keterangan jadi tooltip, tabel bisa sort & search, tambah produk baru di Stok';
 
 var CFG = {
   spreadsheetId: '',              // '' = spreadsheet aktif

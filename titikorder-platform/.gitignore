@@ -1,0 +1,42 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+.next/
+dist/
+build/
+out/
+.turbo/
+
+# environment & rahasia — JANGAN pernah di-commit
+.env
+.env.*
+!.env.example
+*.pem
+*-key.json
+credentials/
+service-account*.json
+
+# test & cache
+coverage/
+.nyc_output/
+*.tsbuildinfo
+__pycache__/
+.pytest_cache/
+
+# log
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# editor & OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# Claude Code — setting proyek IKUT di-commit, riwayat lokal tidak
+.claude/*
+!.claude/settings.json

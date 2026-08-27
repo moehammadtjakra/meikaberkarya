@@ -809,6 +809,46 @@ function simpanHargaJual(list) {
   } finally { lock.releaseLock(); }
 }
 
+/**
+ * Tambah PRODUK BARU langsung dari tab Stok.
+ * Input: nama produk, HPP, harga jual, gudang, (qty awal opsional).
+ * SKU dibuat OTOMATIS & unik lewat resolveSku_ (kalau nama persis sudah ada,
+ * SKU lama dipakai ulang supaya tidak ganda). Row STOK dibuat di gudang pilihan
+ * (qty awal 0 kalau tidak diisi), lalu harga jual manual disimpan bila diisi.
+ */
+function tambahProdukBaru(nama, hpp, jual, gudang, qty) {
+  var me = me_();
+  nama = t_(nama);
+  if (!nama) throw new Error('Nama produk wajib diisi.');
+  hpp = num_(hpp) || 0;
+  var q = num_(qty) || 0;
+  if (q < 0) throw new Error('Qty awal tidak boleh negatif.');
+  gudang = t_(gudang) || CFG.gudangDefault;
+
+  var sku, baru, namaResmi;
+  var lock = LockService.getScriptLock(); lock.waitLock(60000);
+  try {
+    var reg = skuRegistry_();
+    var res = resolveSku_(nama, '', reg, {});     // nama lama -> SKU lama; nama baru -> SKU unik baru
+    sku = res.sku; baru = !res.reused; namaResmi = res.nama || nama;
+
+    var s = stokRows_();
+    terapkanSaldo_(s.t, sku, namaResmi, gudang, q, hpp, 'MASUK');   // qty 0 pun bikin row + set HPP
+    writeTable_(s.sh, s.t);
+    if (q > 0) {
+      catatMutasi_([[new Date(), 'MASUK', 'Belanja Supplier', sku, namaResmi, gudang, '',
+                     q, hpp, q * hpp, '', 'Produk baru', me.nama]]);
+    }
+    log_('Tambah Produk', sku + ' — ' + namaResmi + (baru ? ' (baru)' : ' (SKU lama dipakai ulang)'));
+    cacheClear_();
+  } finally { lock.releaseLock(); }
+
+  var jualN = num_(jual) || 0;
+  if (jualN > 0) { try { simpanHargaJual([{ sku: sku, jual: jualN }]); } catch (e) {} }
+
+  return { ok: true, sku: sku, nama: namaResmi, baru: baru, stok: q, gudang: gudang, jual: jualN };
+}
+
 function getStokTerkini() {
   me_();
   var gud = gudangList_().filter(function (g) { return g.aktif; });

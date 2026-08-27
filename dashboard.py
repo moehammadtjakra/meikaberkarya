@@ -1510,23 +1510,40 @@ with tab5:
 
             # ---- tabel performa per produk ----
             st.markdown("##### 🧭 Performa & Keputusan per Produk")
-            st.caption(f"Verdict pakai **ROI** (laba÷spend) vs **Target {int(target_roi)}%**: "
-                       "🟢 Scale ROI ≥ target • 🟡 Optimize 0–target • 🔴 Kill ROI < 0 / tanpa closing. "
-                       "Arahkan kursor ke judul kolom untuk penjelasan & cara hitung. Geser tabel ke kanan.")
+            st.caption("Penanda sumber data: **MA** = Meta Ads · **OO** = OrderOnline · **JNT** = J&T. "
+                       "Verdict dari **skor gabungan CM% + Closing Rate + Retur** (bobot 50/30/20): "
+                       "🟢 Scale ≥70 • 🟡 Optimize 40–69 • 🔴 Kill <40. "
+                       "Aturan keras: CM/Order ≤ 0 atau tanpa closing → langsung Kill. "
+                       "Arahkan kursor ke judul kolom untuk cara hitungnya.")
             _rp = lambda v: rp(v) if pd.notna(v) else "–"
+            _pc = lambda v: f"{v:.1f}%" if pd.notna(v) else "–"
             show = pd.DataFrame({
                 "Produk": g["produk"], "Verdict": g["verdict"],
-                "Spend": g["spend"].map(rp),
-                "Budget/Hari": g["daily_budget"].map(rp),
-                "CPM": g["cpm"].map(_rp), "CTR": g["ctr"].map(lambda v: f"{v:.2f}%" if pd.notna(v) else "–"),
-                "CPC": g["cpc"].map(_rp),
-                "Klik": g["clicks"].map(num), "Link Klik": g["link_click"].map(num),
-                "LPV": g["landing_page_view"].map(num),
-                "Purchase": g["purchases"].map(num), "Cost/Purchase": g["cost_per_purchase"].map(_rp),
-                "Leads": g["leads"].map(num), "Closing": g["closing"].map(num),
-                "Omzet": g["omzet"].map(rp),
+                "Skor": g["skor"].map(lambda v: f"{v:.0f}" if pd.notna(v) else "–"),
+                # ---- Meta Ads ----
+                "Spend - MA": g["spend"].map(rp),
+                "Budget/Hari - MA": g["daily_budget"].map(rp),
+                "CPM - MA": g["cpm"].map(_rp),
+                "CTR - MA": g["ctr"].map(lambda v: f"{v:.2f}%" if pd.notna(v) else "–"),
+                "CPC - MA": g["cpc"].map(_rp),
+                "Klik - MA": g["clicks"].map(num),
+                "Link Klik - MA": g["link_click"].map(num),
+                "LPV - MA": g["landing_page_view"].map(num),
+                "Purchase - MA": g["purchases"].map(num),
+                "Cost/Purchase - MA": g["cost_per_purchase"].map(_rp),
+                # ---- OrderOnline ----
+                "Leads - OO": g["leads"].map(num),
+                "Closing - OO": g["closing"].map(num),
+                "Closing Rate - OO": g["closing_rate"].map(_pc),
+                "Omzet - OO": g["omzet"].map(rp),
+                # ---- J&T ----
+                "Retur % - JNT": g["retur_pct"].map(_pc),
+                # ---- turunan ----
+                "Pcs Terjual": g["pcs_terjual"].map(num),
                 "Cost/Closing": g["cost_per_closing"].map(_rp),
                 "Impas/Closing": g["breakeven_cpa"].map(_rp),
+                "CM/Order": g["cm_per_order"].map(_rp),
+                "CM %": g["cm_pct"].map(_pc),
                 "ROAS": g["roas"].map(lambda v: f"{v:.2f}×" if pd.notna(v) else "–"),
                 "ROI": g["roi"].map(lambda v: f"{v:.0f}%" if pd.notna(v) else "–"),
                 "Laba": g["profit"].map(_rp),
@@ -1534,30 +1551,42 @@ with tab5:
             })
             _tc = st.column_config.TextColumn
             _tips = {
-                "Produk": ("Produk", "Nama barang unik (SKU). Iklan digabung dari semua campaign produk ini."),
-                "Verdict": ("Verdict", "Rekomendasi otomatis dari ROI vs Target ROI."),
-                "Spend": ("Spend", "Total belanja iklan produk ini pada rentang tanggal (Σ kolom spend Meta)."),
-                "Budget/Hari": ("Budget/Hari", "Jumlah daily_budget semua campaign aktif produk ini (snapshot)."),
-                "CPM": ("CPM", "Biaya per 1.000 impresi = spend ÷ impresi × 1.000."),
-                "CTR": ("CTR", "Click-through rate = klik ÷ impresi × 100%."),
-                "CPC": ("CPC", "Cost per click = spend ÷ klik."),
-                "Klik": ("Klik", "Total semua klik iklan."),
-                "Link Klik": ("Link Klik", "Klik menuju link/landing (subset dari klik)."),
-                "LPV": ("Landing Page View", "Jumlah kunjungan landing page yang termuat."),
-                "Purchase": ("Purchase (Meta)", "Jumlah purchase versi Pixel Meta (order web), kanonik — bukan penjumlahan alias."),
-                "Cost/Purchase": ("Cost/Purchase", "spend ÷ purchase Meta. Biaya per order versi Pixel."),
-                "Leads": ("Leads (OO)", "Jumlah order/lead masuk di OrderOnline (kolom created_at dalam rentang), dipetakan ke SKU ini."),
-                "Closing": ("Closing (OO)", "Leads yang paid & status completed/processing = order COD terbayar."),
-                "Omzet": ("Omzet", "Σ product_price dari order closing (pendapatan nyata)."),
-                "Cost/Closing": ("Cost/Closing (CPA real)", "spend ÷ closing OO. Biaya akuisisi order nyata."),
-                "Impas/Closing": ("Impas/Closing", "Margin kotor per order dari katalog (Nilai − HPP − fee + cashback). Batas CPA agar tak rugi."),
-                "ROAS": ("ROAS", "Return on Ad Spend = omzet ÷ spend. Berbasis pendapatan (bukan laba)."),
-                "ROI": ("ROI Iklan", "Laba ÷ spend × 100%. Laba = closing × margin − spend. 0% = balik modal. Dasar verdict."),
-                "Laba": ("Laba", "Estimasi laba = closing × margin kotor/order − spend."),
-                "Aksi": ("Aksi", "Rekomendasi tindakan berdasar ROI, CPA vs impas."),
+                "Produk": "Nama barang unik (SKU). Iklan digabung dari semua campaign produk ini.",
+                "Verdict": "Rekomendasi otomatis dari skor. Aturan keras: rugi per order atau tanpa closing → Kill.",
+                "Skor": "0–100. Gabungan CM% (bobot 50%), Closing Rate (30%), dan Retur (20%). "
+                        "Bila salah satu datanya tidak ada, bobot dihitung ulang dari yang tersedia.",
+                "Spend - MA": "Meta Ads. Total belanja iklan produk ini pada rentang tanggal.",
+                "Budget/Hari - MA": "Meta Ads. Jumlah daily_budget semua campaign aktif produk ini (snapshot).",
+                "CPM - MA": "Meta Ads. Biaya per 1.000 impresi = spend ÷ impresi × 1.000.",
+                "CTR - MA": "Meta Ads. Klik ÷ impresi × 100%.",
+                "CPC - MA": "Meta Ads. Spend ÷ klik.",
+                "Klik - MA": "Meta Ads. Total semua klik iklan.",
+                "Link Klik - MA": "Meta Ads. Klik menuju link/landing (bagian dari total klik).",
+                "LPV - MA": "Meta Ads. Landing page view — halaman benar-benar termuat.",
+                "Purchase - MA": "Meta Ads. Purchase versi Pixel (satu nilai kanonik, bukan penjumlahan alias). "
+                                 "Sering LEBIH BESAR dari lead nyata — jangan dipakai untuk keuangan.",
+                "Cost/Purchase - MA": "Meta Ads. Spend ÷ purchase Pixel. Biasanya terlihat lebih murah dari CPA nyata.",
+                "Leads - OO": "OrderOnline. Order/lead masuk pada rentang created_at yang sama, dipetakan ke SKU ini.",
+                "Closing - OO": "OrderOnline. Lead yang paid & status completed/processing = order COD terbayar.",
+                "Closing Rate - OO": "OrderOnline. Closing ÷ Leads × 100%. Efisiensi CS mengubah lead jadi order.",
+                "Omzet - OO": "OrderOnline. Σ product_price dari order closing (pendapatan nyata).",
+                "Retur % - JNT": "J&T. Paket retur ÷ TOTAL resi produk ini (bukan hanya sampai+retur). "
+                                 "Tidak dikalikan lagi ke margin — dipakai sebagai penalti skor karena retur "
+                                 "membakar ongkir, stok, dan waktu CS.",
+                "Pcs Terjual": "Qty order closing × pcs per order (dari katalog admin). Berguna untuk rencana stok.",
+                "Cost/Closing": "CPA nyata = spend ÷ closing OO. Acuan utama, bukan Cost/Purchase Meta.",
+                "Impas/Closing": "Margin kotor per order dari katalog (Nilai − HPP − fee COD + cashback). "
+                                 "Batas CPA sebelum rugi.",
+                "CM/Order": "Laba bersih per order setelah biaya iklan = Impas − Cost/Closing. "
+                            "Kalau ≤ 0, menambah budget memperbesar kerugian.",
+                "CM %": "CM/Order ÷ nilai jual × 100%. Ketebalan margin — penggerak skor terbesar.",
+                "ROAS": "Omzet ÷ spend. Berbasis pendapatan, BUKAN laba — bisa terlihat bagus padahal rugi.",
+                "ROI": "Laba ÷ spend × 100%. Laba = closing × margin − spend. 0% = balik modal.",
+                "Laba": "Estimasi laba rentang ini = closing × margin kotor/order − spend.",
+                "Aksi": "Tindakan yang disarankan, menyebut penyebab terlemah dari ketiga penggerak skor.",
             }
-            _cfg = {k: _tc(help=v[1], width=("large" if k == "Aksi" else
-                                             "medium" if k == "Produk" else None))
+            _cfg = {k: _tc(help=v, width=("large" if k == "Aksi" else
+                                          "medium" if k == "Produk" else None))
                     for k, v in _tips.items()}
             st.dataframe(show, width='stretch', height=460, hide_index=True, column_config=_cfg)
 
